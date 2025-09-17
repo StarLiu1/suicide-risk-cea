@@ -1,5 +1,6 @@
-# 2. Hesim Model Parameters  
-# File: R/02-hesim-parameters.R
+# 2. Hesim Model Parameters - PHASE 2 INDIVIDUAL PATIENT MODEL
+# File: R/02-parameters.R
+# Updated for individual patient tracking with age-dependent parameters
 
 library(hesim)
 library(data.table)
@@ -7,19 +8,20 @@ library(data.table)
 # Load setup data
 load("data/hesim_setup.RData")
 
-cat("Defining model parameters for hesim...\n")
+cat("Defining model parameters for Phase 2 individual patient model...\n")
+cat("Patients:", format(n_patients, big.mark = ","), "| Risk strata:", n_risk_strata, "\n")
 
 # Model timing parameters
-n_cycles <- 80      # Reduced for Phase 1 (vs 80 for lifetime in full model)
+n_cycles <- 80      # Lifetime horizon (up to ~50 years from mean age 48.8)
 cycle_length <- 1   # 1 year cycles
 discount_rate <- 0.03  # 3% annual discount rate
 
-cat("Model timing:\n")
+cat("\nModel timing:\n")
 cat("- Cycles:", n_cycles, "\n")
 cat("- Cycle length:", cycle_length, "year\n")
-cat("- Discount rate:", discount_rate, "\n")
+cat("- Discount rate:", discount_rate * 100, "%\n")
 
-# Intervention parameters
+# Intervention parameters (same as Phase 1)
 intervention_params <- list(
   # Relative risk of suicide attempt (from meta-analyses in paper)
   rr = c(
@@ -68,15 +70,78 @@ cat("- Death per attempt:", clinical_params$death_per_attempt, "\n")
 cat("- Prior attempt multiplier:", clinical_params$prior_attempt_multiplier, "\n") 
 cat("- Base utility:", clinical_params$base_utility, "\n")
 
-# Cost parameters (2016 USD)
+# AGE-DEPENDENT PARAMETERS (New for Phase 2)
+# ==========================================
+# These are critical for individual patient tracking
+
+# Age-dependent mortality rates (non-suicide deaths)
+# From US life tables 2017 (reference 23 in paper)
+create_age_mortality_table <- function() {
+  
+  cat("\nCreating age-dependent mortality parameters...\n")
+  
+  # Age-specific mortality rates per 1000 population (approximate US rates)
+  # These will be interpolated for specific ages during simulation
+  age_mortality <- data.table(
+    age_group = c("18-24", "25-34", "35-44", "45-54", "55-64", "65-74", "75-84", "85+"),
+    age_midpoint = c(21, 29.5, 39.5, 49.5, 59.5, 69.5, 79.5, 90),
+    mortality_rate = c(
+      0.00087,  # 18-24: 0.87 per 1000
+      0.00120,  # 25-34: 1.20 per 1000  
+      0.00201,  # 35-44: 2.01 per 1000
+      0.00431,  # 45-54: 4.31 per 1000
+      0.00965,  # 55-64: 9.65 per 1000
+      0.02170,  # 65-74: 21.70 per 1000
+      0.05112,  # 75-84: 51.12 per 1000
+      0.13137   # 85+: 131.37 per 1000
+    )
+  )
+  
+  return(age_mortality)
+}
+
+age_mortality_table <- create_age_mortality_table()
+
+# Function to get mortality rate for specific age
+get_mortality_rate <- function(age) {
+  # Linear interpolation between age groups
+  if (age <= 21) return(age_mortality_table$mortality_rate[1])
+  if (age >= 90) return(age_mortality_table$mortality_rate[8])
+  
+  # Find bracketing ages and interpolate
+  lower_idx <- max(which(age_mortality_table$age_midpoint <= age))
+  upper_idx <- min(which(age_mortality_table$age_midpoint > age))
+  
+  if (lower_idx == upper_idx) return(age_mortality_table$mortality_rate[lower_idx])
+  
+  # Linear interpolation
+  lower_age <- age_mortality_table$age_midpoint[lower_idx]
+  upper_age <- age_mortality_table$age_midpoint[upper_idx]
+  lower_rate <- age_mortality_table$mortality_rate[lower_idx]
+  upper_rate <- age_mortality_table$mortality_rate[upper_idx]
+  
+  weight <- (age - lower_age) / (upper_age - lower_age)
+  interpolated_rate <- lower_rate + weight * (upper_rate - lower_rate)
+  
+  return(interpolated_rate)
+}
+
+# Test mortality function
+cat("Sample mortality rates:\n")
+cat("- Age 30:", round(get_mortality_rate(30) * 1000, 2), "per 1000\n")
+cat("- Age 50:", round(get_mortality_rate(50) * 1000, 2), "per 1000\n") 
+cat("- Age 70:", round(get_mortality_rate(70) * 1000, 2), "per 1000\n")
+
+# Age-dependent cost parameters (2016 USD)
+# From Table 1 - background healthcare costs vary by age
 cost_params <- list(
-  # Suicide attempt costs
+  # Suicide attempt costs (age-independent)
   nonfatal_attempt_medical = 10830,    # Medical cost per nonfatal attempt
   nonfatal_attempt_productivity = 17369, # Productivity cost per nonfatal attempt
   fatal_attempt_medical = 4354,        # Medical cost per fatal attempt (age-adjusted)
   fatal_attempt_productivity = 61150,  # Productivity cost per fatal attempt (age-adjusted)
   
-  # Background healthcare costs by age group (annual)
+  # Background healthcare costs by age group (annual) - KEY FOR INDIVIDUAL TRACKING
   bg_medical_18_44 = 4016,
   bg_medical_45_64 = 7648,
   bg_medical_65plus = 11740,
@@ -85,34 +150,73 @@ cost_params <- list(
   evaluation_cost = 76
 )
 
-cat("\nCost parameters (2016 USD):\n")
+# Function to get background medical cost by age
+get_background_cost <- function(age) {
+  if (age < 45) return(cost_params$bg_medical_18_44)
+  if (age < 65) return(cost_params$bg_medical_45_64)
+  return(cost_params$bg_medical_65plus)
+}
+
+cat("\nAge-dependent cost parameters (2016 USD):\n")
+cat("- Ages 18-44:", cost_params$bg_medical_18_44, "\n")
+cat("- Ages 45-64:", cost_params$bg_medical_45_64, "\n")
+cat("- Ages 65+:", cost_params$bg_medical_65plus, "\n")
 cat("- Nonfatal attempt medical:", cost_params$nonfatal_attempt_medical, "\n")
 cat("- Fatal attempt medical:", cost_params$fatal_attempt_medical, "\n")
-cat("- Background medical (45-64):", cost_params$bg_medical_45_64, "\n")
 
-# Function to create transition probability parameters for hesim
+# Create patient-specific parameter mapping for efficient simulation
+create_patient_parameters <- function() {
+  
+  cat("\nCreating patient-specific parameter mapping...\n")
+  cat("Available patient columns:", names(patients), "\n")
+  
+  # Work with the existing age column name from your setup
+  # Your setup script created: patient_id, age, sex, risk_stratum
+  age_col <- "age"  # This is what your setup script created
+  
+  cat("Using age column:", age_col, "\n")
+  
+  # Create a table linking each patient to their risk stratum parameters
+  patient_params <- merge(patients, 
+                          risk_strata[, .(stratum_id, baseline_attempt_rate)], 
+                          by.x = "risk_stratum", by.y = "stratum_id")
+  
+  # Add age-dependent parameters using the existing age column
+  patient_params[, initial_mortality_rate := sapply(age, get_mortality_rate)]
+  patient_params[, initial_bg_cost := sapply(age, get_background_cost)]
+  
+  # For simulation, we'll need current_age (copy from age initially)
+  patient_params[, current_age := age]
+  patient_params[, initial_age := age]  # Keep track of starting age too
+  
+  cat("Patient parameters created for", nrow(patient_params), "patients\n")
+  
+  return(patient_params)
+}
+
+patient_params <- create_patient_parameters()
+
+# Display sample of patient parameters
+cat("\nSample patient parameters:\n")
+print(head(patient_params[, .(patient_id, age, initial_age, current_age, risk_stratum, baseline_attempt_rate, 
+                              initial_mortality_rate, initial_bg_cost)], 10))
+
+# Create transition probability parameters for hesim
+# This is more complex for individual patients but follows same structure
 create_transition_params <- function() {
   
-  cat("\nCreating transition probability parameters...\n")
+  cat("\nCreating transition probability parameters for individual patients...\n")
   
-  # We need to create parameters for each state transition
-  # For hesim, we'll use logit models for transition probabilities
+  # For hesim, we need transition parameters for each patient-strategy combination
+  # This will be handled efficiently in the transition model
   
-  # Create parameter table for all transitions
-  n_states <- nrow(states)
-  n_strategies <- nrow(strategies)
-  n_pts <- nrow(patients)
-  
-  # Create expanded dataset for transitions
+  # Create base transition data structure
   trans_data <- expand(hesim_dat, by = c("strategies", "patients"))
   
-  # Add stratum information based on patient_id 
-  # (in Phase 1, patient_id corresponds to risk stratum)
-  trans_data[, stratum := ((patient_id - 1) %% n_risk_strata) + 1]
-  
-  # Add baseline attempt rates
-  trans_data <- merge(trans_data, risk_strata[, .(stratum_id, baseline_attempt_rate)], 
-                      by.x = "stratum", by.y = "stratum_id")
+  # Add patient-specific risk parameters
+  trans_data <- merge(trans_data[, .(strategy_id, patient_id, strategy_name, age, sex)], 
+                      patient_params[, .(patient_id, risk_stratum, baseline_attempt_rate)], 
+                      by = "patient_id")
   
   # Add intervention effects
   trans_data[, rr := intervention_params$rr[strategy_name]]
@@ -120,7 +224,8 @@ create_transition_params <- function() {
   # Calculate adjusted attempt rates
   trans_data[, adjusted_attempt_rate := baseline_attempt_rate * rr]
   
-  cat("Transition parameters dataset created with", nrow(trans_data), "rows\n")
+  cat("Transition parameters dataset created with", format(nrow(trans_data), big.mark = ","), "rows\n")
+  cat("(", nrow(strategies), "strategies ×", format(n_patients, big.mark = ","), "patients)\n")
   
   return(trans_data)
 }
@@ -129,18 +234,38 @@ create_transition_params <- function() {
 transition_data <- create_transition_params()
 
 cat("\nSample of transition data:\n")
-print(head(transition_data))
-
-# For hesim, we need to define the transition model structure
-# We'll create this in the next script, but prepare the parameters here
+print(head(transition_data[, .(strategy_name, patient_id, risk_stratum, baseline_attempt_rate, rr, adjusted_attempt_rate)]))
 
 # Save all parameters
+cat("\nSaving parameters...\n")
 save(
   n_cycles, cycle_length, discount_rate,
   intervention_params, clinical_params, cost_params,
-  transition_data,
+  age_mortality_table, get_mortality_rate, get_background_cost,
+  patient_params, transition_data,
   file = "data/hesim_parameters.RData"
 )
 
-cat("\n✓ Parameters defined and saved to data/hesim_parameters.RData\n")
-cat("\nNext: Run 03-hesim-transitions.R to create transition model\n")
+# cat("\n" + rep("=", 70) + "\n")
+cat("PHASE 2 PARAMETERS COMPLETE\n")
+# cat(rep("=", 70) + "\n")
+cat("Key Features:\n")
+cat("✓ Individual patient parameters (", format(n_patients, big.mark = ","), "patients)\n")
+cat("✓ Age-dependent mortality rates (increases with age)\n")
+cat("✓ Age-stratified background costs (18-44, 45-64, 65+)\n")
+cat("✓ Patient-specific risk stratum assignment\n")
+cat("✓ Efficient parameter lookup functions\n")
+
+cat("\nParameter Summary:\n")
+cat("- Transition combinations:", format(nrow(transition_data), big.mark = ","), "\n")
+cat("- Age mortality table:", nrow(age_mortality_table), "age groups\n")
+cat("- Cost categories:", length(cost_params), "\n")
+cat("- Clinical parameters:", length(clinical_params), "\n")
+
+cat("\nValidation:\n")
+cat("- Mean starting age:", round(mean(patient_params$age), 1), "years\n")
+cat("- Mean mortality rate:", round(mean(patient_params$initial_mortality_rate) * 1000, 2), "per 1000\n")
+cat("- Mean background cost: $", round(mean(patient_params$initial_bg_cost)), "\n")
+
+cat("\nNext: Run 03-transitions.R for age-dependent transition matrices\n")
+# cat(rep("=", 70) + "\n")
