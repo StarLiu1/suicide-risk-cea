@@ -1,0 +1,289 @@
+"1","
+Creating cost model parameters...
+"
+"1","Cost parameters summary:
+"
+"1","- Background medical cost (alive):"
+"1"," "
+"1","7648"
+"1"," "
+"1","
+"
+"1","- ACF intervention cost:"
+"1"," "
+"1","96"
+"1"," "
+"1","
+"
+"1","- CBT intervention cost:"
+"1"," "
+"1","1088"
+"1"," "
+"1","
+"
+"1","
+Creating utility model parameters...
+"
+"1","Utility parameters summary:
+"
+"1","- No attempts utility:"
+"1"," "
+"1","0.866"
+"1"," "
+"1","
+"
+"1","- Prior attempt utility:"
+"1"," "
+"1","0.8227"
+"1"," "
+"1","
+"
+"1","- Dead utility: 0
+"
+"1","
+Creating hesim cost model...
+"
+"1","
+Creating hesim utility model...
+"
+"1","✓ Cost and utility models created
+"
+"1","
+Testing parameter objects:
+"
+"1","Cost parameters object class:"
+"1"," "
+"1","stateval_tbl"
+"1"," "
+"1","data.table"
+"1"," "
+"1","data.frame"
+"1"," "
+"1","
+"
+"1","Utility parameters object class:"
+"1"," "
+"1","stateval_tbl"
+"1"," "
+"1","data.table"
+"1"," "
+"1","data.frame"
+"1"," "
+"1","
+"
+"1","
+✓ Cost and utility models saved to data/hesim_costs_utilities.RData
+"
+"1","
+Next: Run 05-hesim-simulation.R to create and run the economic model
+"
+"0","source(""R/05-simulation.R"")"
+"1","Creating complete hesim economic model...
+"
+"1","Model setup:
+"
+"1","- PSA samples:"
+"1"," "
+"1","1"
+"1"," "
+"1","
+"
+"1","- Time horizon:"
+"1"," "
+"1","80"
+"1"," "
+"1","cycles
+"
+"1","- Cycle length:"
+"1"," "
+"1","1"
+"1"," "
+"1","year
+"
+"1","- Discount rate:"
+"1"," "
+"1","3"
+"1"," "
+"1","%
+"
+"1","=== RUNNING HESIM PHASE 1 SIMULATION ===
+
+"
+"1","
+Creating simplified cohort model for Phase 1...
+"
+"1","Simulating strategy:"
+"1"," "
+"1","No_Prediction"
+"1"," "
+"1","
+"
+"1","  Cycle  1: Deaths=14.26, Attempts=161.85, Cumulative deaths=14.26
+"
+"1","  Cycle  2: Deaths=15.11, Attempts=137.99, Cumulative deaths=29.37
+"
+"1","  Cycle  3: Deaths=15.77, Attempts=117.81, Cumulative deaths=45.13
+"
+"1","  Cycle  4: Deaths=16.26, Attempts=100.75, Cumulative deaths=61.39
+"
+"1","  Cycle  5: Deaths=16.62, Attempts=86.31, Cumulative deaths=78.02
+"
+"1","  Cycle 10: Deaths=17.05, Attempts=41.38, Cumulative deaths=163.15
+"
+"1","  Cycle 15: Deaths=16.29, Attempts=21.87, Cumulative deaths=246.40
+"
+"1","  Cycle 20: Deaths=15.10, Attempts=13.37, Cumulative deaths=324.37
+"
+"1","  Cycle 25: Deaths=13.82, Attempts=9.62, Cumulative deaths=396.06
+"
+"1","  Cycle 30: Deaths=12.58, Attempts=7.94, Cumulative deaths=461.41
+"
+"1","  Cycle 35: Deaths=11.42, Attempts=7.14, Cumulative deaths=520.79
+"
+"1","  Cycle 40: Deaths=10.36, Attempts=6.74, Cumulative deaths=574.66
+"
+"1","  Cycle 45: Deaths=9.40, Attempts=6.50, Cumulative deaths=623.53
+"
+"1","  Cycle 50: Deaths=8.53, Attempts=6.34, Cumulative deaths=667.88
+"
+"1","  Cycle 55: Deaths=7.75, Attempts=6.21, Cumulative deaths=708.15
+"
+"1","  Cycle 60: Deaths=7.04, Attempts=6.09, Cumulative deaths=744.74
+"
+"1","  Cycle 65: Deaths=6.41, Attempts=5.98, Cumulative deaths=778.03
+"
+"1","  Cycle 70: Deaths=5.84, Attempts=5.88, Cumulative deaths=808.35
+"
+"1","  Cycle 75: Deaths=5.33, Attempts=5.79, Cumulative deaths=835.99
+"
+"1","  Cycle 80: Deaths=4.87, Attempts=5.69, Cumulative deaths=861.23
+"
+"1","Strategy No_Prediction completed:
+"
+"1","  - Death rate: 107.65 per 100,000 person-years
+"
+"1","  - Attempt rate: 190.31 per 100,000 person-years
+"
+"1","  - Cost per patient: $223823
+"
+"1","  - QALYs per patient: 25.1094
+
+"
+"1","Simulating strategy:"
+"1"," "
+"1","ACF_Intervention"
+"1"," "
+"1","
+"
+"1","  Cycle  1: Deaths=11.83, Attempts=134.34, Cumulative deaths=11.83
+"
+"1","  Cycle  2: Deaths=12.42, Attempts=117.90, Cumulative deaths=24.26
+"
+"1","  Cycle  3: Deaths=12.90, Attempts=103.57, Cumulative deaths=37.15
+"
+"1","  Cycle  4: Deaths=13.28, Attempts=91.07, Cumulative deaths=50.43
+"
+"1","  Cycle  5: Deaths=13.57, Attempts=80.17, Cumulative deaths=64.00
+"
+"1","  Cycle 10: Deaths=14.16, Attempts=43.34, Cumulative deaths=134.13
+"
+"1","  Cycle 15: Deaths=13.87, Attempts=24.75, Cumulative deaths=204.29
+"
+"1","  Cycle 20: Deaths=13.18, Attempts=15.33, Cumulative deaths=271.67
+"
+"1","  Cycle 25: Deaths=12.34, Attempts=10.55, Cumulative deaths=335.08
+"
+"1","  Cycle 30: Deaths=11.46, Attempts=8.10, Cumulative deaths=394.15
+"
+"1","  Cycle 35: Deaths=10.60, Attempts=6.82, Cumulative deaths=448.87
+"
+"1","  Cycle 40: Deaths=9.79, Attempts=6.14, Cumulative deaths=499.43
+"
+"1","  Cycle 45: Deaths=9.03, Attempts=5.76, Cumulative deaths=546.10
+"
+"1","  Cycle 50: Deaths=8.33, Attempts=5.53, Cumulative deaths=589.14
+"
+"1","  Cycle 55: Deaths=7.69, Attempts=5.38, Cumulative deaths=628.85
+"
+"1","  Cycle 60: Deaths=7.10, Attempts=5.26, Cumulative deaths=665.49
+"
+"1","  Cycle 65: Deaths=6.55, Attempts=5.17, Cumulative deaths=699.32
+"
+"1","  Cycle 70: Deaths=6.05, Attempts=5.09, Cumulative deaths=730.56
+"
+"1","  Cycle 75: Deaths=5.60, Attempts=5.01, Cumulative deaths=759.44
+"
+"1","  Cycle 80: Deaths=5.18, Attempts=4.94, Cumulative deaths=786.15
+"
+"1","Strategy ACF_Intervention completed:
+"
+"1","  - Death rate: 98.27 per 100,000 person-years
+"
+"1","  - Attempt rate: 180.41 per 100,000 person-years
+"
+"1","  - Cost per patient: $227682
+"
+"1","  - QALYs per patient: 25.2397
+
+"
+"1","Simulating strategy:"
+"1"," "
+"1","CBT_Intervention"
+"1"," "
+"1","
+"
+"1","  Cycle  1: Deaths=6.70, Attempts=76.07, Cumulative deaths=6.70
+"
+"1","  Cycle  2: Deaths=6.89, Attempts=70.80, Cumulative deaths=13.59
+"
+"1","  Cycle  3: Deaths=7.06, Attempts=65.91, Cumulative deaths=20.65
+"
+"1","  Cycle  4: Deaths=7.21, Attempts=61.38, Cumulative deaths=27.85
+"
+"1","  Cycle  5: Deaths=7.34, Attempts=57.17, Cumulative deaths=35.19
+"
+"1","  Cycle 10: Deaths=7.78, Attempts=40.30, Cumulative deaths=73.35
+"
+"1","  Cycle 15: Deaths=7.96, Attempts=28.71, Cumulative deaths=112.90
+"
+"1","  Cycle 20: Deaths=7.96, Attempts=20.75, Cumulative deaths=152.78
+"
+"1","  Cycle 25: Deaths=7.85, Attempts=15.28, Cumulative deaths=192.30
+"
+"1","  Cycle 30: Deaths=7.66, Attempts=11.51, Cumulative deaths=231.01
+"
+"1","  Cycle 35: Deaths=7.43, Attempts=8.92, Cumulative deaths=268.63
+"
+"1","  Cycle 40: Deaths=7.17, Attempts=7.14, Cumulative deaths=304.99
+"
+"1","  Cycle 45: Deaths=6.89, Attempts=5.90, Cumulative deaths=340.01
+"
+"1","  Cycle 50: Deaths=6.62, Attempts=5.05, Cumulative deaths=373.64
+"
+"1","  Cycle 55: Deaths=6.34, Attempts=4.45, Cumulative deaths=405.89
+"
+"1","  Cycle 60: Deaths=6.07, Attempts=4.04, Cumulative deaths=436.77
+"
+"1","  Cycle 65: Deaths=5.80, Attempts=3.74, Cumulative deaths=466.31
+"
+"1","  Cycle 70: Deaths=5.55, Attempts=3.53, Cumulative deaths=494.56
+"
+"1","  Cycle 75: Deaths=5.30, Attempts=3.38, Cumulative deaths=521.57
+"
+"1","  Cycle 80: Deaths=5.07, Attempts=3.27, Cumulative deaths=547.37
+"
+"1","Strategy CBT_Intervention completed:
+"
+"1","  - Death rate: 68.42 per 100,000 person-years
+"
+"1","  - Attempt rate: 157.62 per 100,000 person-years
+"
+"1","  - Cost per patient: $259702
+"
+"1","  - QALYs per patient: 25.5700
+
+"
+"1","Creating results summary...
+"
+"1","=== SIMULATION RESULTS SUMMARY ===
+"

@@ -1,0 +1,54 @@
+"1","
+✓ Corrected transition model saved to data/hesim_transitions.RData
+"
+"1","
+Final validation - expected death rates:
+"
+"1","
+Stratum 1 (rate=0.000080, pop_weight=0.10):
+"
+"1","  No_Prediction: 0.00000705 annual death prob (0.70 per 100,000)
+"
+"1","  ACF_Intervention: 0.00000585 annual death prob (0.58 per 100,000)
+"
+"1","  CBT_Intervention: 0.00000331 annual death prob (0.33 per 100,000)
+"
+"1","
+Stratum 5 (rate=0.000080, pop_weight=0.10):
+"
+"1","  No_Prediction: 0.00000705 annual death prob (0.70 per 100,000)
+"
+"1","  ACF_Intervention: 0.00000585 annual death prob (0.58 per 100,000)
+"
+"1","  CBT_Intervention: 0.00000331 annual death prob (0.33 per 100,000)
+"
+"1","
+Stratum 10 (rate=0.154370, pop_weight=0.10):
+"
+"1","  No_Prediction: 0.01360000 annual death prob (1360.00 per 100,000)
+"
+"1","  ACF_Intervention: 0.01128800 annual death prob (1128.80 per 100,000)
+"
+"1","  CBT_Intervention: 0.00639200 annual death prob (639.20 per 100,000)
+"
+"1","
+Expected overall death rate: 142.59 per 100,000 person-years
+"
+"1","Target from paper: 15.0 per 100,000 person-years
+"
+"1","⚠️  Death rate is high - consider decreasing baseline attempt rates
+"
+"1","
+Next: Run 04-hesim-costs-utilities.R to define cost and utility models
+"
+"0","source(""R/04-costs-utilities.R"")"
+"1","Creating hesim cost and utility models...
+"
+"1","Cost/utility input data created with"
+"1"," "
+"1","90"
+"1"," "
+"1","rows
+"
+"1","Sample of cost/utility data:
+"

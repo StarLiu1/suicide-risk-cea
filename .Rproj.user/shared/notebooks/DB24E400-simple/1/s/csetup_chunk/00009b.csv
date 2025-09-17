@@ -1,0 +1,22 @@
+"0","# Phase 1 Master Run Script"
+"0","# File: run_phase1.R"
+"0",""
+"0","# Clear workspace"
+"0","rm(list = ls())"
+"0",""
+"0","# Set working directory (adjust as needed)"
+"0","# setwd(""~/suicide-risk-cea"")"
+"0",""
+"0","# Load required libraries"
+"0","library(data.table)"
+"0","library(ggplot2)"
+"0",""
+"0","# Source all component files"
+"0","cat(""Loading model components...\n"")"
+"1","Loading model components...
+"
+"0","source(""R/01-model-setup.R"")"
+"1","Setting up hesim data structures...
+"
+"1","Strategies defined:
+"

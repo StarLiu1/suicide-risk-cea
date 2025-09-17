@@ -1,0 +1,30 @@
+---
+title: "test"
+author: "Star Liu"
+date: "2025-09-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# Source all your component files
+source("R/01-model-setup.r")
+source("R/02-parameters.r")
+source("R/03-transitions.r")
+source("R/04-costs-utilities.r")
+
+```
+
+
+```{r #Model States and Transitions}
+
+```
+
+```{r #Health States}
+
+```
+
+```{r #Transition Probabilities}
+
+
+```
+
