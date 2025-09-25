@@ -163,6 +163,22 @@ run_transition_simulation <- function(strategy_name, verbose = TRUE) {
       cat(sprintf("  Cycle %2d: Deaths=%.2f, Attempts=%.2f\n", 
                   cycle, cycle_deaths, cycle_attempts))
     }
+    
+    # Calculate population counts at end of cycle
+    alive_count <- sum(stateprobs_array[1, , cycle + 1, 1:2])  # States 1 & 2 (alive)
+    dead_count <- sum(stateprobs_array[1, , cycle + 1, 3])     # State 3 (dead)
+    prior_attempt_count <- sum(stateprobs_array[1, , cycle + 1, 2])  # State 2 (prior attempts)
+    
+    # Progress reporting with population counts
+    if (verbose && (cycle <= 5 || cycle %% 20 == 0)) {
+      cat(sprintf("  Cycle %2d: Alive=%s, Prior Attempts=%s, Dead=%s, New Deaths=%.2f\n", 
+                  cycle, 
+                  format(round(alive_count), big.mark = ","),
+                  format(round(prior_attempt_count), big.mark = ","), 
+                  format(round(dead_count), big.mark = ","),
+                  cycle_deaths))
+    }
+    
   }
   
   # Convert to hesim stateprobs format

@@ -76,6 +76,7 @@ create_transition_parameters <- function() {
     trans_input_data[, age_mortality := get_age_mortality(48.8)]  # Mean age
   }
   
+  
   cat("Transition input data created with", nrow(trans_input_data), "rows\n")
   
   return(list(

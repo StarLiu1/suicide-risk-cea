@@ -5,6 +5,9 @@
 library(hesim)
 library(data.table)
 library(dplyr)
+# Load required library
+library(readxl)
+
 
 cat("=== PROPER HESIM IMPLEMENTATION ===\n")
 cat("Ross et al. (2021) Suicide Risk Prediction Model\n\n")
@@ -42,19 +45,92 @@ intervention_params <- list(
   uptake = c("No_Prediction" = 1.0, "ACF_Intervention" = 0.994, "CBT_Intervention" = 0.899)
 )
 
+# Load and process the life table data
+load_mortality_table <- function() {
+  
+  cat("Loading mortality data from External Data/lifetable.xlsx...\n")
+  
+  # Read the Excel file
+  mortality_data <- read_excel("External Data/lifetable.xlsx")
+  
+  # Parse age groups and create lookup table
+  mortality_lookup <- data.table()
+  
+  for (i in 1:nrow(mortality_data)) {
+    age_group <- mortality_data$`Age Group`[i]
+    probability <- mortality_data$Probability[i]
+    
+    # Parse different age group formats
+    if (grepl("–", age_group)) {
+      # Format like "99–100"
+      ages <- strsplit(age_group, "–")[[1]]
+      start_age <- as.numeric(ages[1])
+    } else if (grepl("\\+", age_group)) {
+      # Format like "100+"
+      start_age <- as.numeric(gsub("\\+", "", age_group))
+    } else {
+      # Assume it's just a number
+      start_age <- as.numeric(age_group)
+    }
+    
+    mortality_lookup <- rbind(mortality_lookup, data.table(
+      age = start_age,
+      mortality_prob = probability
+    ))
+  }
+  
+  # Sort by age
+  mortality_lookup <- mortality_lookup[order(age)]
+  
+  cat("Mortality table loaded with", nrow(mortality_lookup), "age groups\n")
+  cat("Age range:", min(mortality_lookup$age), "to", max(mortality_lookup$age), "\n")
+  
+  return(mortality_lookup)
+}
+
+# Load the mortality table
+mortality_table <- load_mortality_table()
+
 # Age-dependent mortality (for individual patient model)
 if (use_individual_patients) {
-  # Simple age-mortality relationship (US life tables approximation)
+  # # Simple age-mortality relationship (US life tables approximation)
+  # get_age_mortality <- function(age) {
+  #   # Approximate annual mortality rates by age
+  #   ifelse(age < 25, 0.001,
+  #          ifelse(age < 35, 0.0015,
+  #                 ifelse(age < 45, 0.002,
+  #                        ifelse(age < 55, 0.005,
+  #                               ifelse(age < 65, 0.01,
+  #                                      ifelse(age < 75, 0.025,
+  #                                             ifelse(age < 85, 0.06, 0.15)))))))
+  # }
+  # Replace get_age_mortality function entirely
   get_age_mortality <- function(age) {
-    # Approximate annual mortality rates by age
-    ifelse(age < 25, 0.001,
-           ifelse(age < 35, 0.0015,
-                  ifelse(age < 45, 0.002,
-                         ifelse(age < 55, 0.005,
-                                ifelse(age < 65, 0.01,
-                                       ifelse(age < 75, 0.025,
-                                              ifelse(age < 85, 0.06, 0.15)))))))
+    
+    # Floor age to integer
+    age_int <- floor(age)
+    
+    # Handle edge cases
+    if (age_int < 0) return(0)
+    if (age_int >= max(mortality_table$age)) {
+      # Use highest available age group for very old ages
+      return(mortality_table[age == max(mortality_table$age)]$mortality_prob)
+    }
+    
+    # Find the appropriate age group
+    # Use the highest age that is <= input age
+    applicable_ages <- mortality_table[age <= age_int]
+    
+    if (nrow(applicable_ages) == 0) {
+      # Age is below minimum in table, use first entry
+      return(mortality_table[1]$mortality_prob)
+    } else {
+      # Use the most recent applicable age group
+      return(applicable_ages[age == max(applicable_ages$age)]$mortality_prob)
+    }
   }
+  get_age_mortality <- Vectorize(get_age_mortality)
+  
 }
 
 if (use_individual_patients) {
