@@ -1,342 +1,317 @@
-# 3. Hesim Transition Model - PROPER COHORTDTSTMTRANS IMPLEMENTATION
-# File: R/03-transitions.R
-# Creating proper hesim CohortDtstmTrans object instead of manual simulation
+# Corrected Hesim Transition Model - Individual Patient Discrete-Time Approach
+# This replaces the survival model approach with proper discrete-time transition matrices
 
 library(hesim)
 library(data.table)
 
-# Load parameter data
+# Load setup data
+load("data/hesim_setup.RData")
 load("data/hesim_parameters.RData")
 
-cat("=== PROPER HESIM TRANSITION MODEL ===\n")
-cat("Creating CohortDtstmTrans object for state transitions\n\n")
+cat("Creating CORRECTED individual patient transition model...\n")
+cat("Using discrete-time transition matrices (not survival models)\n\n")
 
-# =============================================================================
-# 1. DEFINE TRANSITION STRUCTURE
-# =============================================================================
+# CORRECTED INDIVIDUAL PATIENT TRANSITION FUNCTION
+# =================================================
+# This function creates patient-specific transition matrices for each cycle
 
-cat("Defining transition structure...\n")
-
-# Define which transitions are possible between states
-# States: 1=no_attempts, 2=prior_attempt, 3=dead
-# tmat <- rbind(
-#   c(1, 2, 3),  # From no_attempts: can stay (1), attempt & survive (2), or die (3)
-#   c(NA, 2, 3), # From prior_attempt: cannot go back to no_attempts, can stay (2) or die (3)
-#   c(NA, NA, 3) # From dead: can only stay dead (3)
-# )
-
-tmat <- rbind(
-  c(0, 1, 2),    # From no_attempts: trans 0 (stay), trans 1 (survive attempt), trans 2 (die)
-  c(NA, 3, 4),   # From prior_attempt: trans 3 (stay), trans 4 (die) 
-  c(NA, NA, 5)   # From dead: trans 5 (stay dead)
-)
-
-# Set row and column names
-dimnames(tmat) <- list(
-  from = c("no_attempts", "prior_attempt", "dead"),
-  to = c("no_attempts", "prior_attempt", "dead")
-)
-
-cat("Transition matrix structure:\n")
-print(tmat)
-
-# Create transition ID mapping
-transitions <- create_trans_dt(tmat)
-cat("\nTransitions defined:\n")
-print(transitions)
-
-# =============================================================================
-# 2. CREATE TRANSITION INPUT DATA
-# =============================================================================
-
-create_transition_input_data <- function() {
+create_patient_transition_matrix <- function(patient_id, strategy_name, cycle = 1) {
   
-  cat("\nCreating transition input data...\n")
-  
-  # Create input data for transitions (not states)
-  # This should be: strategies × patients × transitions
-  
-  # Start with basic expansion
-  trans_data <- expand(hesim_dat, by = c("strategies", "patients"))
-  
-  # Add patient characteristics
-  trans_data <- merge(trans_data[, .(patient_id, strategy_id, strategy_name)],
-                      patients[, .(patient_id, risk_stratum, age)],
+  # Ensure we're working with a single patient
+  if (length(patient_id) != 1) {
+    stop("This function works with one patient at a time. Use vectorized version if needed.")
+  }
+  patient_params <- merge(patients, 
+                      patient_rates[, .(patient_id, baseline_attempt_rate)],
                       by = "patient_id")
   
-  # Add risk parameters
-  trans_data <- merge(trans_data,
-                      risk_strata[, .(risk_stratum, baseline_attempt_rate)],
-                      by = "risk_stratum")
+  # Get patient data (single row)
+  patient_row <- patient_params[patient_id == patient_id]
   
-  # Add intervention effects
-  trans_data[, intervention_rr := intervention_params$rr[strategy_name]]
-  trans_data[, adjusted_attempt_rate := baseline_attempt_rate * intervention_rr]
+  if (nrow(patient_row) == 0) {
+    stop(paste("Patient", patient_id, "not found"))
+  }
   
-  # Add clinical parameters
-  trans_data[, death_per_attempt := clinical_params$death_per_attempt]
-  trans_data[, prior_multiplier := clinical_params$prior_attempt_multiplier]
+  # Extract scalar values (not vectors)
+  current_age <- as.numeric(patient_row$age[1]) + (cycle - 1)
+  baseline_rate <- as.numeric(patient_row$baseline_attempt_rate[1])
   
-  # Add age-dependent mortality
-  if (use_individual_patients) {
-    trans_data[, age_mortality := get_age_mortality(age)]
+  # Get intervention effect (scalar)
+  rr <- as.numeric(intervention_params$rr[[strategy_name]])
+  
+  # Calculate adjusted attempt rate (scalar)
+  adjusted_rate <- baseline_rate * rr
+  
+  # Get age-dependent mortality (scalar)
+  age_mortality <- as.numeric(get_age_mortality(current_age))
+  
+  # Get clinical parameters (scalars)
+  death_per_attempt <- as.numeric(clinical_params$death_per_attempt)
+  prior_multiplier <- as.numeric(clinical_params$prior_attempt_multiplier)
+  
+  # Calculate probabilities (all scalars now)
+  suicide_attempt_prob <- adjusted_rate
+  suicide_death_prob <- adjusted_rate * death_per_attempt
+  other_death_prob <- age_mortality
+  
+  # Ensure probabilities don't exceed 1 (scalar conditional)
+  total_exit_prob <- suicide_attempt_prob + other_death_prob
+  if (total_exit_prob > 0.99) {
+    scale <- 0.99 / total_exit_prob
+    suicide_attempt_prob <- suicide_attempt_prob * scale
+    suicide_death_prob <- suicide_death_prob * scale  
+    other_death_prob <- other_death_prob * scale
+  }
+  # Create 3x3 transition matrix (now all values are scalars)
+  tmat <- matrix(0, nrow = 3, ncol = 3)
+  rownames(tmat) <- c("no_attempts", "prior_attempt", "dead")
+  colnames(tmat) <- c("no_attempts", "prior_attempt", "dead")
+  
+  # FROM STATE 1: No attempts
+  tmat[1, 1] <- 1 - suicide_attempt_prob - other_death_prob  # Stay no_attempts
+  tmat[1, 2] <- suicide_attempt_prob - suicide_death_prob    # Survive attempt -> prior_attempt
+  tmat[1, 3] <- suicide_death_prob + other_death_prob        # Die (suicide + other)
+  
+  # FROM STATE 2: Prior attempt  
+  prior_attempt_prob <- adjusted_rate * prior_multiplier
+  prior_death_prob <- prior_attempt_prob * death_per_attempt
+  
+  # Ensure valid probabilities (scalar conditional)
+  total_prior_exit <- prior_death_prob + other_death_prob
+  if (total_prior_exit > 0.99) {
+    scale <- 0.99 / total_prior_exit
+    prior_death_prob <- prior_death_prob * scale
+    other_death_prob_adj <- other_death_prob * scale
   } else {
-    trans_data[, age_mortality := get_age_mortality(48.8)]
+    other_death_prob_adj <- other_death_prob
   }
   
-  # Add time variable for time-dependent transitions (age progression)
-  trans_data[, time_id := 1]  # Will be updated during simulation
+  tmat[2, 1] <- 0  # Cannot return to no_attempts
+  tmat[2, 2] <- 1 - prior_death_prob - other_death_prob_adj  # Stay prior_attempt
+  tmat[2, 3] <- prior_death_prob + other_death_prob_adj      # Die
   
-  cat("Transition input data created with", nrow(trans_data), "rows\n")
+  # FROM STATE 3: Dead (absorbing)
+  tmat[3, 1] <- 0
+  tmat[3, 2] <- 0
+  tmat[3, 3] <- 1
   
-  return(trans_data)
+  # Validate matrix (scalars only)
+  row_sums <- rowSums(tmat)
+  if (!all(abs(row_sums - 1) < 1e-8)) {
+    cat("Invalid transition matrix for patient", patient_id, "cycle", cycle, "\n")
+    cat("Row sums:", row_sums, "\n")
+    print(tmat)
+    stop("Transition matrix validation failed")
+  }
+  
+  if (any(tmat < 0)) {
+    cat("Negative probabilities for patient", patient_id, "cycle", cycle, "\n")
+    print(tmat)
+    stop("Negative probabilities detected")
+  }
+  
+  return(tmat)
 }
 
-trans_input_data <- create_transition_input_data()
 
-# =============================================================================
-# 3. CREATE CUSTOM TRANSITION PARAMETERS CLASS
-# =============================================================================
+# HESIM-COMPATIBLE TRANSITION MODEL CLASS
+# ========================================
+# Create a custom transition model that works with hesim framework
 
-# Since we have complex age-dependent transitions, we need a custom parameter class
-# that hesim can use with CohortDtstmTrans
-
-create_proper_hesim_params <- function() {
+create_individual_patient_trans_model <- function(hesim_dat, n_samples = 1) {
   
-  cat("\nCreating proper hesim params_surv_list...\n")
+  cat("Creating individual patient transition model for hesim...\n")
   
-  # Calculate transition probabilities first
-  prob_data <- copy(trans_input_data)
+  # Instead of using hesim's built-in transition models, we'll create a custom approach
+  # that can handle individual patient matrices
   
-  # Add calculated probabilities as columns (same as before)
-  prob_data[, `:=`(
-    # From no_attempts state (transitions 0, 1, 2)
-    p_stay_no = {
-      attempt_prob <- adjusted_attempt_rate
-      age_mort <- if(use_individual_patients) get_age_mortality(age) else age_mortality
-      total_exit <- attempt_prob + age_mort
-      scaling <- ifelse(total_exit > 1, 0.99 / total_exit, 1)
-      pmax(0, 1 - (attempt_prob + age_mort) * scaling)
-    },
-    
-    p_attempt_survive = {
-      attempt_prob <- adjusted_attempt_rate
-      death_prob <- adjusted_attempt_rate * death_per_attempt
-      age_mort <- if(use_individual_patients) get_age_mortality(age) else age_mortality
-      total_exit <- attempt_prob + age_mort
-      scaling <- ifelse(total_exit > 1, 0.99 / total_exit, 1)
-      pmax(0, (attempt_prob - death_prob) * scaling)
-    },
-    
-    p_die_no = {
-      attempt_prob <- adjusted_attempt_rate
-      death_prob <- adjusted_attempt_rate * death_per_attempt
-      age_mort <- if(use_individual_patients) get_age_mortality(age) else age_mortality
-      total_exit <- attempt_prob + age_mort
-      scaling <- ifelse(total_exit > 1, 0.99 / total_exit, 1)
-      pmax(0, (death_prob + age_mort) * scaling)
-    },
-    
-    # From prior_attempt state (transitions 3, 4)
-    p_stay_prior = {
-      prior_prob <- adjusted_attempt_rate * prior_multiplier
-      prior_death <- prior_prob * death_per_attempt
-      age_mort <- if(use_individual_patients) get_age_mortality(age) else age_mortality
-      total_exit <- prior_death + age_mort
-      scaling <- ifelse(total_exit > 1, 0.99 / total_exit, 1)
-      pmax(0, 1 - (prior_death + age_mort) * scaling)
-    },
-    
-    p_die_prior = {
-      prior_prob <- adjusted_attempt_rate * prior_multiplier
-      prior_death <- prior_prob * death_per_attempt
-      age_mort <- if(use_individual_patients) get_age_mortality(age) else age_mortality
-      total_exit <- prior_death + age_mort
-      scaling <- ifelse(total_exit > 1, 0.99 / total_exit, 1)
-      pmax(0, (prior_death + age_mort) * scaling)
-    },
-    
-    # From dead state (transition 5)
-    p_stay_dead = 1.0
-  )]
+  # Create input data structure
+  input_data <- expand(hesim_dat, by = c("strategies", "patients", "states"))
   
-  # Create survival parameter objects for each transition
-  surv_models <- vector("list", nrow(transitions))
+  # Add patient parameters to input data
+  input_data <- merge(input_data, 
+                      patient_rates[, .(patient_id, baseline_attempt_rate)],
+                      by = "patient_id")
   
-  for (i in 1:nrow(transitions)) {
-    trans_info <- transitions[i]
-    trans_id <- trans_info$transition_id
+  # Create a custom transition model object
+  trans_model <- list(
+    input_data = input_data,
+    n_samples = n_samples,
+    n_states = 3,
+    create_matrix_fn = create_patient_transition_matrix,
     
-    # Get the relevant probability for this transition
-    if (trans_id == 0) {
-      prob_col <- "p_stay_no"
-    } else if (trans_id == 1) {
-      prob_col <- "p_attempt_survive"
-    } else if (trans_id == 2) {
-      prob_col <- "p_die_no"
-    } else if (trans_id == 3) {
-      prob_col <- "p_stay_prior"
-    } else if (trans_id == 4) {
-      prob_col <- "p_die_prior"
-    } else if (trans_id == 5) {
-      prob_col <- "p_stay_dead"
+    # Method to simulate state probabilities
+    sim_stateprobs = function(n_cycles) {
+      
+      cat("Simulating state probabilities for", n_cycles, "cycles...\n")
+      
+      n_patients <- nrow(hesim_dat$patients)
+      n_strategies <- nrow(hesim_dat$strategies)
+      
+      # Initialize state probabilities
+      stateprobs <- data.table()
+      
+      for (sample_id in 1:n_samples) {
+        for (strat_id in 1:n_strategies) {
+          
+          strategy_name <- hesim_dat$strategies$strategy_name[strat_id]
+          cat("  Processing strategy:", strategy_name, "\n")
+          
+          # Initialize patient states (all start in state 1: no_attempts)
+          patient_states <- matrix(0, nrow = n_patients, ncol = 3)
+          patient_states[, 1] <- 1  # All start in no_attempts state
+          
+          # Store initial state
+          for (state_id in 1:3) {
+            initial_prob <- ifelse(state_id == 1, 1, 0)
+            
+            stateprobs <- rbind(stateprobs, data.table(
+              sample = sample_id,
+              strategy_id = strat_id,
+              patient_id = rep(1:n_patients, each = 1),
+              state_id = state_id,
+              t = 0,
+              prob = rep(initial_prob, n_patients)
+            ))
+          }
+          
+          # Simulate through cycles
+          for (cycle in 1:n_cycles) {
+            
+            if (cycle %% 10 == 0) cat("    Cycle", cycle, "\n")
+            
+            new_patient_states <- matrix(0, nrow = n_patients, ncol = 3)
+            
+            for (p in 1:n_patients) {
+              
+              # Get current state probabilities for this patient
+              current_state_probs <- patient_states[p, ]
+              
+              # Get transition matrix for this patient at this cycle
+              tmat <- create_patient_transition_matrix(
+                patient_id = p,
+                strategy_name = strategy_name,
+                cycle = cycle
+              )
+              
+              # Apply transition matrix: new_probs = current_probs %*% transition_matrix
+              new_state_probs <- current_state_probs %*% tmat
+              new_patient_states[p, ] <- as.numeric(new_state_probs)
+            }
+            
+            # Update patient states
+            patient_states <- new_patient_states
+            
+            # Store results for this cycle
+            for (state_id in 1:3) {
+              stateprobs <- rbind(stateprobs, data.table(
+                sample = sample_id,
+                strategy_id = strat_id,
+                patient_id = 1:n_patients,
+                state_id = state_id,
+                t = cycle,
+                prob = patient_states[, state_id]
+              ))
+            }
+          }
+        }
+      }
+      
+      # Store results in the model object
+      self$stateprobs_ <- stateprobs
+      cat("State probability simulation completed!\n")
+      
+      return(invisible(self))
     }
-    
-    # Convert probabilities to rates for exponential distribution
-    # For cycle-based model: rate = -log(1 - probability)
-    avg_prob <- mean(prob_data[[prob_col]], na.rm = TRUE)
-    avg_rate <- -log(1 - pmin(avg_prob, 0.999))  # Avoid log(0)
-    
-    # Create survival parameters for this transition
-    surv_models[[i]] <- params_surv(
-      coefs = list(
-        "(Intercept)" = log(avg_rate)  # Log-linear model
-      ),
-      dist = "exp"  # Exponential distribution
-    )
-    
-    cat("Transition", trans_id, "(", trans_info$from_name, "->", trans_info$to_name, "): rate =", round(avg_rate, 6), "\n")
-  }
-  
-  # Create params_surv_list object
-  params_obj <- params_surv_list(surv_models)
-  
-  return(params_obj)
-}
-
-trans_params <- create_proper_hesim_params()
-
-# =============================================================================
-# 4. DEFINE PREDICT METHOD FOR TRANSITION PROBABILITIES
-# =============================================================================
-
-# This is the key method that hesim will call to get transition probabilities
-predict.simple_trans_params <- function(object, newdata = NULL, ...) {
-  
-  # Return pre-calculated probabilities
-  # Dimensions: [samples, observations, transitions]
-  n_obs <- nrow(object$input_data)
-  prob_array_reshaped <- array(object$prob_array, dim = c(1, n_obs, 6))
-  
-  return(prob_array_reshaped)
-}
-
-cat("✓ Custom predict method defined for suicide_risk_params\n")
-
-# =============================================================================
-# 5. CREATE COHORTDTSTMTRANS OBJECT
-# =============================================================================
-
-create_hesim_transition_model <- function() {
-  
-  cat("\nCreating CohortDtstmTrans object...\n")
-  
-  # Create the transition model using proper hesim params
-  transmod <- CohortDtstmTrans$new(
-    params = trans_params,
-    input_data = trans_input_data,
-    trans_mat = tmat,
-    cycle_length = cycle_length
   )
   
-  cat("✓ CohortDtstmTrans object created successfully\n")
+  # Add self-reference for methods
+  environment(trans_model$sim_stateprobs)$self <- trans_model
   
-  return(transmod)
+  # Set class for compatibility
+  class(trans_model) <- "individual_patient_trans"
+  
+  return(trans_model)
 }
+
+# CREATE THE TRANSITION MODEL
+# ============================
+
+cat("Building individual patient transition model...\n")
 
 # Create the transition model
-transition_model <- create_hesim_transition_model()
-
-# =============================================================================
-# 6. TEST THE TRANSITION MODEL
-# =============================================================================
-
-test_transition_model <- function(transmod) {
-  
-  cat("\nTesting transition model...\n")
-  
-  # Test the transition model directly (not the params object)
-  cat("Testing state probabilities simulation (5 cycles)...\n")
-  
-  tryCatch({
-    stateprobs_test <- transmod$sim_stateprobs(n_cycles = 5)
-    cat("✓ State probabilities simulation successful\n")
-    cat("State probabilities table dimensions:", dim(stateprobs_test), "\n")
-    
-    # Show sample results
-    cat("\nSample state probabilities (first strategy, first patient, cycles 0-5):\n")
-    sample_results <- stateprobs_test[strategy_id == 1 & patient_id == 1, 
-                                      .(t, state_id, prob)]
-    print(head(sample_results, 15))
-    
-    # Check if probabilities sum to 1 for each time point
-    prob_sums <- stateprobs_test[strategy_id == 1 & patient_id == 1, 
-                                 .(prob_sum = sum(prob)), by = t]
-    cat("\nProbability sums by cycle (should be ~1.0):\n")
-    print(head(prob_sums))
-    
-    return(TRUE)
-    
-  }, error = function(e) {
-    cat("✗ Error in state probabilities simulation:", e$message, "\n")
-    return(FALSE)
-  })
-}
-
-# Test the model
-test_success <- test_transition_model(transition_model)
-
-# =============================================================================
-# 7. SUMMARY AND VALIDATION
-# =============================================================================
-
-# cat("\n" + strrep("=", 70) + "\n")
-cat("HESIM TRANSITION MODEL COMPLETE\n") 
-# cat(strrep("=", 70) + "\n")
-
-cat("\nTransition Model Summary:\n")
-cat("- Model type: CohortDtstmTrans\n")
-cat("- States:", nrow(states), "(no_attempts, prior_attempt, dead)\n")
-cat("- Transitions:", nrow(transitions), "\n")
-cat("- Patients:", n_patients, "\n")
-cat("- Strategies:", nrow(strategies), "\n")
-cat("- Time horizon:", n_cycles, "cycles\n")
-
-cat("\nKey Features:\n")
-cat("✓ Proper hesim CohortDtstmTrans object\n")
-cat("✓ Age-dependent mortality progression\n") 
-cat("✓ Individual patient transition probabilities\n")
-cat("✓ Custom predict method for complex transitions\n")
-cat("✓ Ready for full economic model integration\n")
-
-if (test_success) {
-  cat("✓ All tests passed - model is functional\n")
-} else {
-  cat("⚠️  Some tests failed - review implementation\n")
-}
-
-# =============================================================================
-# 8. SAVE TRANSITION MODEL
-# =============================================================================
-
-cat("\nSaving transition model objects...\n")
-
-save(
-  # Transition model objects
-  transition_model, trans_params, tmat, transitions,
-  trans_input_data,
-  
-  # Keep all previous objects
-  hesim_dat, input_data, strategies, patients, states, risk_strata,
-  cost_params, utility_params,
-  clinical_params, intervention_params, 
-  n_cycles, cycle_length, discount_rate,
-  n_risk_strata, n_patients, use_individual_patients,
-  
-  file = "data/hesim_transitions.RData"
+transition_model <- create_individual_patient_trans_model(
+  hesim_dat = hesim_dat,
+  n_samples = 1  # Deterministic for now
 )
 
-cat("\n✓ Transition model saved to data/hesim_transitions.RData\n")
+cat("Transition model created with", nrow(transition_model$input_data), "parameter combinations\n")
 
-cat("\nNext: Run R/04-costs-utilities.R to create StateVals objects\n")
-# cat(strrep("=", 70) + "\n")
+# TEST THE TRANSITION MODEL
+# =========================
+
+cat("\nTesting individual patient transition matrices...\n")
+
+# Test a few sample patients
+test_patients <- c(1, 100, 1000, 5000)
+test_strategies <- c("No_Prediction", "ACF_Intervention", "CBT_Intervention")
+
+for (patient_id in test_patients) {
+  if (patient_id <= n_patients) {
+    
+    patient_params <- merge(patients, 
+                            patient_rates[, .(patient_id, baseline_attempt_rate)],
+                            by = "patient_id")
+    
+    
+    patient_info <- patient_params[patient_id == patient_id]
+    cat(sprintf("\nPatient %d: Age %.1f, Risk stratum %d, Baseline rate %.6f\n",
+                patient_id, patient_info$initial_age, patient_info$risk_stratum, 
+                patient_info$baseline_attempt_rate))
+    
+    for (strategy in test_strategies) {
+      
+      tmat <- create_patient_transition_matrix(
+        patient_id = patient_id,
+        strategy_name = strategy,
+        cycle = 1
+      )
+      
+      attempt_prob <- tmat[1, 2] + tmat[1, 3]  # Total attempt probability
+      cat(sprintf("  %s: Attempt prob = %.6f\n", strategy, attempt_prob))
+    }
+  }
+}
+
+# SAVE THE CORRECTED TRANSITION MODEL
+# ====================================
+
+cat("\nSaving corrected transition model components...\n")
+
+save(
+  create_patient_transition_matrix,
+  create_individual_patient_trans_model, 
+  transition_model,
+  file = "data/corrected_hesim_transitions.RData"
+)
+
+# cat("\n" + rep("=", 70) + "\n")
+cat("CORRECTED HESIM TRANSITION MODEL COMPLETE\n")
+# cat(rep("=", 70) + "\n")
+cat("Key Changes Made:\n")
+cat("✓ Replaced survival models with discrete-time transition matrices\n")
+cat("✓ Individual patient-specific matrices (not averaged)\n") 
+cat("✓ Age progression built into matrix calculation\n")
+cat("✓ Risk stratum effects preserved per patient\n")
+cat("✓ Intervention effects applied individually\n")
+cat("✓ Custom hesim-compatible simulation approach\n")
+
+cat("\nNext Steps:\n")
+cat("1. Replace your previous transition model with this corrected version\n")
+cat("2. Update your simulation script to use transition_model$sim_stateprobs()\n")
+cat("3. Test with a small number of cycles first\n")
+cat("4. Validate results match expected attempt rates\n")
+
+cat("\nThis approach maintains individual patient heterogeneity while being\n")
+cat("compatible with hesim's economic modeling framework.\n")
+# cat(rep("=", 70) + "\n")

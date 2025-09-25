@@ -54,13 +54,15 @@ run_transition_simulation <- function(strategy_name, verbose = TRUE) {
   # Track outcomes for validation
   total_attempts <- 0
   total_deaths_suicide <- 0
-  total_deaths_other <- 0
+  total_deaths_natural <- 0
   
   # Run simulation cycles
   for (cycle in 1:n_cycles) {
     
     cycle_attempts <- 0
     cycle_deaths <- 0
+    cycle_deaths_suicide <- 0
+    cycle_deaths_natural <- 0
     
     # Process each patient
     for (patient in 1:n_patients) {
@@ -84,67 +86,64 @@ run_transition_simulation <- function(strategy_name, verbose = TRUE) {
       # Calculate new state probabilities
       new_probs <- rep(0, n_states)
       
+     
+      
       # FROM STATE 1 (no_attempts):
       if (current_probs[1] > 0) {
         
-        # Transition probabilities
+        # Calculate separate death components
         suicide_attempt_prob <- adjusted_rate
         suicide_death_prob <- adjusted_rate * clinical_params$death_per_attempt
-        other_death_prob <- age_mortality
+        natural_death_prob <- age_mortality
         
         # Ensure probabilities don't exceed 1
-        total_exit <- suicide_attempt_prob + other_death_prob
+        total_exit <- suicide_attempt_prob + natural_death_prob
         if (total_exit > 1) {
           scaling <- 0.99 / total_exit
           suicide_attempt_prob <- suicide_attempt_prob * scaling
           suicide_death_prob <- suicide_death_prob * scaling
-          other_death_prob <- other_death_prob * scaling
+          natural_death_prob <- natural_death_prob * scaling
         }
         
         # Apply transitions
-        stay_prob <- 1 - suicide_attempt_prob - other_death_prob
+        stay_prob <- 1 - suicide_attempt_prob - natural_death_prob
         attempt_survive_prob <- suicide_attempt_prob - suicide_death_prob
-        death_prob <- suicide_death_prob + other_death_prob
+        total_death_prob <- suicide_death_prob + natural_death_prob
         
-        new_probs[1] <- new_probs[1] + current_probs[1] * stay_prob           # Stay no_attempts
-        new_probs[2] <- new_probs[2] + current_probs[1] * attempt_survive_prob # -> prior_attempt
-        new_probs[3] <- new_probs[3] + current_probs[1] * death_prob          # -> dead
+        new_probs[1] <- new_probs[1] + current_probs[1] * stay_prob
+        new_probs[2] <- new_probs[2] + current_probs[1] * attempt_survive_prob
+        new_probs[3] <- new_probs[3] + current_probs[1] * total_death_prob
         
-        # Track outcomes
-        if (attempt_survive_prob > 0) {
-          cycle_attempts <- cycle_attempts + current_probs[1] * attempt_survive_prob
-        }
-        if (suicide_death_prob > 0) {
-          cycle_deaths <- cycle_deaths + current_probs[1] * suicide_death_prob
-        }
+        # Track outcomes SEPARATELY
+        cycle_attempts <- cycle_attempts + current_probs[1] * suicide_attempt_prob
+        cycle_deaths_suicide <- cycle_deaths_suicide + current_probs[1] * suicide_death_prob
+        cycle_deaths_natural <- cycle_deaths_natural + current_probs[1] * natural_death_prob
       }
       
       # FROM STATE 2 (prior_attempt):
       if (current_probs[2] > 0) {
         
         prior_attempt_prob <- adjusted_rate * clinical_params$prior_attempt_multiplier
-        prior_death_prob <- prior_attempt_prob * clinical_params$death_per_attempt
+        prior_suicide_death_prob <- prior_attempt_prob * clinical_params$death_per_attempt
+        prior_natural_death_prob <- age_mortality
         
-        total_prior_exit <- prior_death_prob + age_mortality
+        total_prior_exit <- prior_suicide_death_prob + prior_natural_death_prob
         if (total_prior_exit > 1) {
           scaling <- 0.99 / total_prior_exit
-          prior_death_prob <- prior_death_prob * scaling
-          age_mortality_adj <- age_mortality * scaling
-        } else {
-          age_mortality_adj <- age_mortality
+          prior_suicide_death_prob <- prior_suicide_death_prob * scaling
+          prior_natural_death_prob <- prior_natural_death_prob * scaling
         }
         
-        stay_prior_prob <- 1 - prior_death_prob - age_mortality_adj
-        death_prior_prob <- prior_death_prob + age_mortality_adj
+        stay_prior_prob <- 1 - prior_suicide_death_prob - prior_natural_death_prob
+        total_prior_death_prob <- prior_suicide_death_prob + prior_natural_death_prob
         
-        new_probs[2] <- new_probs[2] + current_probs[2] * stay_prior_prob  # Stay prior_attempt
-        new_probs[3] <- new_probs[3] + current_probs[2] * death_prior_prob # -> dead
+        new_probs[2] <- new_probs[2] + current_probs[2] * stay_prior_prob
+        new_probs[3] <- new_probs[3] + current_probs[2] * total_prior_death_prob
         
-        # Track outcomes
-        if (prior_death_prob > 0) {
-          cycle_attempts <- cycle_attempts + current_probs[2] * prior_attempt_prob
-          cycle_deaths <- cycle_deaths + current_probs[2] * prior_death_prob
-        }
+        # Track outcomes SEPARATELY
+        cycle_attempts <- cycle_attempts + current_probs[2] * prior_attempt_prob
+        cycle_deaths_suicide <- cycle_deaths_suicide + current_probs[2] * prior_suicide_death_prob
+        cycle_deaths_natural <- cycle_deaths_natural + current_probs[2] * prior_natural_death_prob
       }
       
       # FROM STATE 3 (dead):
@@ -152,32 +151,21 @@ run_transition_simulation <- function(strategy_name, verbose = TRUE) {
       
       # Store new probabilities
       stateprobs_array[1, patient, cycle + 1, ] <- new_probs
+      
     }
     
-    # Accumulate outcomes
+    # Update your accumulation:
     total_attempts <- total_attempts + cycle_attempts
-    total_deaths_suicide <- total_deaths_suicide + cycle_deaths
+    total_deaths_suicide <- total_deaths_suicide + cycle_deaths_suicide
+    total_deaths_natural <- total_deaths_natural + cycle_deaths_natural
     
-    # Progress reporting
-    if (verbose && (cycle <= 5 || cycle %% 20 == 0)) {
-      cat(sprintf("  Cycle %2d: Deaths=%.2f, Attempts=%.2f\n", 
-                  cycle, cycle_deaths, cycle_attempts))
+    # Update your progress reporting:
+    if (verbose && (cycle %% 1 == 0)) {
+      cat(sprintf("  Cycle %2d: Suicide Deaths=%.2f, Natural Deaths=%.2f, Attempts=%.2f\n", 
+                  cycle, cycle_deaths_suicide, cycle_deaths_natural, cycle_attempts))
     }
     
-    # Calculate population counts at end of cycle
-    alive_count <- sum(stateprobs_array[1, , cycle + 1, 1:2])  # States 1 & 2 (alive)
-    dead_count <- sum(stateprobs_array[1, , cycle + 1, 3])     # State 3 (dead)
-    prior_attempt_count <- sum(stateprobs_array[1, , cycle + 1, 2])  # State 2 (prior attempts)
     
-    # Progress reporting with population counts
-    if (verbose && (cycle <= 5 || cycle %% 20 == 0)) {
-      cat(sprintf("  Cycle %2d: Alive=%s, Prior Attempts=%s, Dead=%s, New Deaths=%.2f\n", 
-                  cycle, 
-                  format(round(alive_count), big.mark = ","),
-                  format(round(prior_attempt_count), big.mark = ","), 
-                  format(round(dead_count), big.mark = ","),
-                  cycle_deaths))
-    }
     
   }
   
