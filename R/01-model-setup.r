@@ -276,61 +276,6 @@ create_ross_risk_distribution <- function() {
 
 risk_strata <- create_ross_risk_distribution()
 
-
-# Add this debug code to check your risk distribution
-# Put this right after your risk_strata creation in R/01-model-setup.r
-
-cat("=== RISK DISTRIBUTION DEBUG ===\n")
-
-# Check the risk_strata table
-cat("Risk strata summary:\n")
-print(summary(risk_strata))
-
-# Check the distribution of attempt rates
-cat("\nAttempt rate distribution:\n")
-rate_summary <- risk_strata[, .(
-  min_rate = min(baseline_attempt_rate),
-  max_rate = max(baseline_attempt_rate), 
-  mean_rate = mean(baseline_attempt_rate),
-  strata_count = .N
-), by = .(rate_group = round(baseline_attempt_rate, 6))]
-
-print(rate_summary)
-
-# Check specific percentile brackets
-cat("\nAttempt rates by percentile brackets:\n")
-cat("- Strata 1-900 (0-90th percentile):", risk_strata[1]$baseline_attempt_rate, "\n")
-cat("- Strata 901-950 (90-95th percentile):", risk_strata[901]$baseline_attempt_rate, "\n") 
-cat("- Strata 951-990 (95-99th percentile):", risk_strata[951]$baseline_attempt_rate, "\n")
-cat("- Strata 991-1000 (>99th percentile):", risk_strata[991]$baseline_attempt_rate, "\n")
-
-# Calculate expected overall rate manually
-expected_rate <- sum(risk_strata$baseline_attempt_rate * risk_strata$population_weight)
-cat("\nExpected overall attempt rate:", round(expected_rate * 100000, 1), "per 100,000\n")
-
-# Check patient assignment to risk strata
-cat("\n=== PATIENT RISK ASSIGNMENT DEBUG ===\n")
-patient_risk_dist <- patients[, .N, by = risk_stratum][order(risk_stratum)]
-cat("Number of patients by risk stratum (first 10):\n")
-print(head(patient_risk_dist, 10))
-
-cat("Number of patients by risk stratum (last 10):\n")
-print(tail(patient_risk_dist, 10))
-
-# Check high-risk patient assignment
-high_risk_patients <- patients[risk_stratum >= 991, .N]
-cat("\nPatients in highest risk strata (991-1000):", high_risk_patients, "\n")
-cat("Expected high-risk patients (1% of 10,000):", 0.01 * 10000, "\n")
-
-# Calculate weighted average attempt rate across all patients
-patient_rates <- merge(patients[, .(patient_id, risk_stratum)], 
-                       risk_strata[, .(risk_stratum, baseline_attempt_rate)],
-                       by.x = "risk_stratum", by.y = "risk_stratum")
-
-actual_avg_rate <- mean(patient_rates$baseline_attempt_rate)
-cat("\nActual average attempt rate across patients:", round(actual_avg_rate * 100000, 1), "per 100,000\n")
-cat("Should be close to 175 per 100,000\n")
-
 # =============================================================================
 # 5. CREATE HESIM DATA OBJECT
 # =============================================================================
