@@ -5,7 +5,7 @@
 library(data.table)
 
 # Load previous simulation data
-load("data/hesim_costs_utilities.RData")
+load("data/hesim_costs_utilities_100k_1cycle.RData")
 # source("R/05-simulation.R")  # Get the run_transition_simulation function
 run_transition_simulation <- function(strategy_name, patients_with_pred, verbose = TRUE) {
   
@@ -27,6 +27,8 @@ run_transition_simulation <- function(strategy_name, patients_with_pred, verbose
   total_deaths_suicide <- 0
   total_deaths_other <- 0
   
+  intervention_uptake <- intervention_params$uptake[[strategy_name]]
+  
   # Run simulation cycles
   for (cycle in 1:n_cycles) {
     
@@ -45,12 +47,16 @@ run_transition_simulation <- function(strategy_name, patients_with_pred, verbose
       
       # Apply intervention effect
       if (patients_with_pred$predicted_high_risk[patient]) {
-        # This patient gets intervention
-        adjusted_rate <- baseline_rate * intervention_rr  # 0.83 or 0.47
+        if (runif(1) < intervention_uptake) {  # 99.4% for ACF, 89.9% for CBT
+          adjusted_rate <- baseline_rate #* intervention_rr
+        } else {
+          adjusted_rate <- baseline_rate * 1.0  # No intervention effect
+        }
       } else {
         # This patient gets no intervention  
         adjusted_rate <- baseline_rate * 1.0
       }
+
       
       # Get age-dependent mortality
       age_mortality <- get_age_mortality(patient_age)
