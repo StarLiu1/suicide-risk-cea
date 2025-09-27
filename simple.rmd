@@ -27,7 +27,7 @@ source("R/03-transitions.R")
 source("R/04-costs-utilities.R")
 source("R/05-simulation.R")
 source("R/06-risk-prediction.R")
-source("R/07-full-lifetime-simulation.R")
+source("R/07-complete-lifetime-cea.R")
 
 array(0, dim = c(1, 5, 1, 3))
 ```

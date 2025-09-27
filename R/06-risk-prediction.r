@@ -34,6 +34,7 @@ run_transition_simulation <- function(strategy_name, patients_with_pred, verbose
     
     cycle_attempts <- 0
     cycle_deaths <- 0
+    cycle_deaths_other <- 0
     
     # Process each patient
     for (patient in 1:n_patients) {
@@ -48,7 +49,7 @@ run_transition_simulation <- function(strategy_name, patients_with_pred, verbose
       # Apply intervention effect
       if (patients_with_pred$predicted_high_risk[patient]) {
         if (runif(1) < intervention_uptake) {  # 99.4% for ACF, 89.9% for CBT
-          adjusted_rate <- baseline_rate #* intervention_rr
+          adjusted_rate <- baseline_rate * intervention_rr
         } else {
           adjusted_rate <- baseline_rate * 1.0  # No intervention effect
         }
@@ -101,6 +102,9 @@ run_transition_simulation <- function(strategy_name, patients_with_pred, verbose
           cycle_attempts <- cycle_attempts + current_probs[1] * suicide_death_prob
           cycle_deaths <- cycle_deaths + current_probs[1] * suicide_death_prob
         }
+        if (other_death_prob > 0) {
+          cycle_deaths_other <- cycle_deaths_other + current_probs[1] * other_death_prob  # OTHER deaths
+        }
       }
       
       # FROM STATE 2 (prior_attempt):
@@ -129,6 +133,9 @@ run_transition_simulation <- function(strategy_name, patients_with_pred, verbose
           cycle_attempts <- cycle_attempts + current_probs[2] * prior_attempt_prob
           cycle_deaths <- cycle_deaths + current_probs[2] * prior_death_prob
         }
+        if (age_mortality_adj > 0) {
+          cycle_deaths_other <- cycle_deaths_other + current_probs[2] * age_mortality_adj  # OTHER deaths
+        }
       }
       
       # FROM STATE 3 (dead):
@@ -141,11 +148,12 @@ run_transition_simulation <- function(strategy_name, patients_with_pred, verbose
     # Accumulate outcomes
     total_attempts <- total_attempts + cycle_attempts
     total_deaths_suicide <- total_deaths_suicide + cycle_deaths
+    total_deaths_other <- total_deaths_other + cycle_deaths_other
     
     # Progress reporting
     if (verbose && (cycle <= 5 || cycle %% 20 == 0)) {
-      cat(sprintf("  Cycle %2d: Deaths=%.2f, Attempts=%.2f\n", 
-                  cycle, cycle_deaths, cycle_attempts))
+      cat(sprintf("  Cycle %2d: Suicide Deaths=%.2f, Other Deaths=%.2f, Attempts=%.2f\n", 
+                  cycle, cycle_deaths, cycle_deaths_other, cycle_attempts))
     }
     
     # Calculate population counts at end of cycle
@@ -215,7 +223,14 @@ run_transition_simulation <- function(strategy_name, patients_with_pred, verbose
       total_attempts = total_attempts,
       total_deaths = total_deaths_suicide,
       attempt_rate_per_100k = attempt_rate,
-      death_rate_per_100k = death_rate
+      death_rate_per_100k = death_rate,
+      total_deaths_other = total_deaths_other,
+      total_deaths_suicide = total_deaths_suicide,
+      total_deaths_all = total_deaths_suicide + total_deaths_other,
+      # attempt_rate_per_100k = (total_attempts / person_years) * 100000,
+      suicide_death_rate_per_100k = (total_deaths_suicide / person_years) * 100000,
+      other_death_rate_per_100k = (total_deaths_other / person_years) * 100000,
+      total_death_rate_per_100k = ((total_deaths_suicide + total_deaths_other) / person_years) * 100000
     )
   ))
 }
@@ -372,10 +387,24 @@ run_targeted_simulation <- function(strategy_name, sensitivity, specificity, ver
     actual_sensitivity = sum(prediction_results$predicted_high_risk & prediction_results$true_high_risk) / sum(prediction_results$true_high_risk),
     actual_specificity = 1 - sum(prediction_results$predicted_high_risk & !prediction_results$true_high_risk) / sum(!prediction_results$true_high_risk)
   )
-  
+    # total_attempts = total_attempts,
+    # total_deaths = total_deaths_suicide,
+    # attempt_rate_per_100k = attempt_rate,
+    # death_rate_per_100k = death_rate,
+    # total_deaths_other = total_deaths_other,
+    # total_deaths_suicide = total_deaths_suicide,
+    # total_deaths_all = total_deaths_suicide + total_deaths_other,
+    # # attempt_rate_per_100k = (total_attempts / person_years) * 100000,
+    # suicide_death_rate_per_100k = (total_deaths_suicide / person_years) * 100000,
+    # other_death_rate_per_100k = (total_deaths_other / person_years) * 100000,
+    # total_death_rate_per_100k = ((total_deaths_suicide + total_deaths_other) / person_years) * 100000
   if (verbose) {
-    cat("Result:", round(result$summary$attempt_rate_per_100k, 1), "attempts,", 
-        round(result$summary$death_rate_per_100k, 1), "deaths per 100K person-years\n\n")
+    cat("Result:", round(result$summary$attempt_rate_per_100k, 2), "attempts,", 
+        round(result$summary$total_attempts, 2), "total attempts \n\n",
+        round(result$summary$total_deaths_suicide, 2), "total suicide deaths \n\n",
+        round(result$summary$other_death_rate_per_100k, 2), "total other deaths \n\n",
+        round(result$summary$suicide_death_rate_per_100k, 2), "suicide deaths per 100K person-years\n\n")
+        # round(result$summary$death_rate_per_100k, 2), "suicide deaths per 100K person-years\n\n")
   }
   
   return(result)
