@@ -275,12 +275,14 @@ save(
   # Transition parameters
   trans_params,
   
+  cost_params, utility_params,  # These are now created
+  
   # Previous objects (keep for reference)
   hesim_dat, input_data, strategies, patients, states, risk_strata,
   clinical_params, intervention_params, n_cycles, cycle_length, discount_rate,
   n_risk_strata, n_patients, use_individual_patients,
   
-  file = "data/hesim_parameters_fixed.RData"
+  file = "data/hesim_parameters.RData"
 )
 
 # =============================================================================

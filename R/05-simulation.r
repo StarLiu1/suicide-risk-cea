@@ -36,7 +36,7 @@ simulation_start_time <- Sys.time()
 # 2. CUSTOM TRANSITION SIMULATION ENGINE
 # =============================================================================
 
-run_transition_simulation <- function(strategy_name, verbose = TRUE) {
+run_transition_simulation <- function(strategy_name, patients_with_pred, verbose = TRUE) {
   
   if (verbose) cat("Simulating strategy:", strategy_name, "...\n")
   
@@ -73,7 +73,13 @@ run_transition_simulation <- function(strategy_name, verbose = TRUE) {
       baseline_rate <- risk_strata[risk_stratum == patient_risk_stratum]$baseline_attempt_rate
       
       # Apply intervention effect
-      adjusted_rate <- baseline_rate * intervention_rr
+      if (patients_with_pred$predicted_high_risk[patient]) {
+        # This patient gets intervention
+        adjusted_rate <- baseline_rate * intervention_rr  # 0.83 or 0.47
+      } else {
+        # This patient gets no intervention  
+        adjusted_rate <- baseline_rate * 1.0
+      }
       
       # Get age-dependent mortality
       age_mortality <- get_age_mortality(patient_age)
@@ -95,7 +101,7 @@ run_transition_simulation <- function(strategy_name, verbose = TRUE) {
         # Ensure probabilities don't exceed 1
         total_exit <- suicide_attempt_prob + other_death_prob
         if (total_exit > 1) {
-          scaling <- 0.99 / total_exit
+          scaling <- 1.0 / total_exit
           suicide_attempt_prob <- suicide_attempt_prob * scaling
           suicide_death_prob <- suicide_death_prob * scaling
           other_death_prob <- other_death_prob * scaling
@@ -115,6 +121,7 @@ run_transition_simulation <- function(strategy_name, verbose = TRUE) {
           cycle_attempts <- cycle_attempts + current_probs[1] * attempt_survive_prob
         }
         if (suicide_death_prob > 0) {
+          cycle_attempts <- cycle_attempts + current_probs[1] * suicide_death_prob
           cycle_deaths <- cycle_deaths + current_probs[1] * suicide_death_prob
         }
       }
