@@ -10,7 +10,131 @@ cat("Creating hesim tparams_transprobs for CohortDtstm model\n\n")
 # =============================================================================
 # 1. CREATE TRANSITION PROBABILITY PARAMETERS (PROPER HESIM WAY)
 # =============================================================================
+create_cost_parameters <- function() {
+  
+  cat("\nCreating cost model parameters...\n")
+  
+  # Cost parameters from Ross et al. (2016 USD)
+  cost_values <- list(
+    # Suicide attempt costs
+    nonfatal_attempt_medical = 10830,
+    nonfatal_attempt_productivity = 17369,
+    fatal_attempt_medical = 4354,
+    fatal_attempt_productivity = 61150,
+    
+    # Background healthcare costs by age
+    bg_medical_18_44 = 4016,
+    bg_medical_45_64 = 7648, 
+    bg_medical_65plus = 11740,
+    
+    # Evaluation cost
+    evaluation_cost = 76
+  )
+  
+  # Create cost input data (strategies × patients × states)
+  cost_input_data <- expand(hesim_dat, by = c("strategies", "patients", "states"))
+  
+  # Add patient information
+  cost_input_data <- merge(cost_input_data[, .(patient_id, strategy_id, strategy_name, state_name, state_id)],
+                           patients[, .(patient_id, risk_stratum, age)],
+                           by = "patient_id")
+  
+  # Calculate age-dependent background costs
+  cost_input_data[, bg_medical_cost := ifelse(age < 45, cost_values$bg_medical_18_44,
+                                              ifelse(age < 65, cost_values$bg_medical_45_64,
+                                                     cost_values$bg_medical_65plus))]
+  
+  # Add intervention costs
+  cost_input_data[, intervention_cost := intervention_params$annual_cost[strategy_name]]
+  
+  # Calculate total annual costs by state
+  # State 1 (no_attempts): background + intervention
+  # State 2 (prior_attempt): background + intervention 
+  # State 3 (dead): 0
+  cost_input_data[, total_cost := ifelse(state_id == 3, 0, bg_medical_cost + intervention_cost)]
+  
+  # Create hesim cost table format
+  cost_tbl <- cost_input_data[, .(
+    strategy_id = strategy_id,
+    patient_id = patient_id,
+    state_id = state_id,
+    est = total_cost  # hesim expects column named 'est'
+  )]
+  
+  cat("Cost table created with", nrow(cost_tbl), "rows\n")
+  
+  # Create hesim stateval_tbl object
+  cost_params_obj <- stateval_tbl(
+    tbl = cost_tbl,
+    dist = "fixed"  # Fixed costs for deterministic model
+  )
+  
+  return(list(
+    cost_values = cost_values,
+    cost_tbl = cost_tbl,
+    cost_params = cost_params_obj
+  ))
+}
 
+cost_params <- create_cost_parameters()
+
+
+# =============================================================================
+# 4. UTILITY MODEL PARAMETERS (HESIM STATEVAL FORMAT) 
+# =============================================================================
+
+create_utility_parameters <- function() {
+  
+  cat("\nCreating utility model parameters...\n")
+  
+  # Utility values from Ross et al.
+  base_utility <- clinical_params$base_utility  # 0.866
+  
+  # Create utility input data (strategies × patients × states)
+  utility_input_data <- expand(hesim_dat, by = c("strategies", "patients", "states"))
+  
+  # Add patient information (for potential age-dependent utilities)
+  utility_input_data <- merge(utility_input_data,
+                              patients[, .(patient_id, age)],
+                              by = "patient_id")
+  
+  # Assign utilities by state
+  # State 1 (no_attempts): full utility
+  # State 2 (prior_attempt): slightly reduced utility (95% of base)
+  # State 3 (dead): 0 utility
+  utility_input_data[, utility := case_when(
+    state_id == 1 ~ base_utility,          # No attempts
+    state_id == 2 ~ base_utility * 0.95,   # Prior attempt (slight reduction)
+    state_id == 3 ~ 0.0                    # Dead
+  )]
+  
+  # Optional: Add small age-dependent utility decline
+  # utility_input_data[, utility := utility * (1 - (age - 18) * 0.001)]
+  
+  # Create hesim utility table format
+  utility_tbl <- utility_input_data[, .(
+    strategy_id = strategy_id,
+    patient_id = patient_id,
+    state_id = state_id,
+    est = utility  # hesim expects column named 'est'
+  )]
+  
+  cat("Utility table created with", nrow(utility_tbl), "rows\n")
+
+  # Create hesim stateval_tbl object
+  utility_params_obj <- stateval_tbl(
+    tbl = utility_tbl,
+    dist = "fixed"  # Fixed utilities for deterministic model
+    
+  )
+  
+  return(list(
+    utility_tbl = utility_tbl,
+    utility_params = utility_params_obj
+  ))
+}
+
+utility_params <- create_utility_parameters()
 create_hesim_transition_params <- function() {
   
   cat("Creating transition probability parameters using tparams_transprobs...\n")
