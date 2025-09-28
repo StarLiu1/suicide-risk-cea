@@ -62,7 +62,7 @@ run_transition_simulation <- function(strategy_name, patients_with_pred, verbose
       
       # Get age-dependent mortality
       # age_mortality <- get_age_mortality(patient_age)
-      age_mortality <- get_background_mortality(patient_age)
+      age_mortality <- get_background_mortality(patient_age) 
       
       # Current state probabilities for this patient
       current_probs <- stateprobs_array[1, patient, cycle, ]
