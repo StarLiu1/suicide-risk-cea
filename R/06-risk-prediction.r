@@ -49,7 +49,7 @@ run_transition_simulation <- function(strategy_name, patients_with_pred, verbose
       # Apply intervention effect
       if (patients_with_pred$predicted_high_risk[patient]) {
         # if (runif(1) < intervention_uptake) {  # 99.4% for ACF, 89.9% for CBT
-        #   adjusted_rate <- baseline_rate * intervention_rr
+        #   adjusted_rate <- baseline_rate * intervention_rr 
         # } else {
         #   adjusted_rate <- baseline_rate * 1.0  # No intervention effect
         # }
