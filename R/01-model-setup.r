@@ -150,7 +150,7 @@ suicide_mortality_table <- data.table(
   suicide_rate = suicide_mortality_data$`% of Total Deaths`  # Already numeric
 )
 
-get_suicide_mortality_rate <- function(age) {
+get_suicide_percentage <- function(age) {
   age_int <- floor(age)
   
   # Handle edge cases
@@ -165,17 +165,28 @@ get_suicide_mortality_rate <- function(age) {
   closest_age <- suicide_mortality_table[age <= age_int][which.max(age)]
   return(closest_age$suicide_rate)
 }
-get_suicide_mortality_rate <- Vectorize(get_suicide_mortality_rate)
+get_suicide_percentage <- Vectorize(get_suicide_percentage)
+
+get_suicide_mortality_probability <- function(age) {
+  all_cause_prob <- get_age_mortality(age)  # e.g., 0.005 probability
+  suicide_percentage <- get_suicide_percentage(age)  # e.g., 0.02 (2% of deaths)
+  
+  # Among those who die, suicide_percentage die from suicide
+  # So: P(suicide death) = P(any death) × P(suicide | death)
+  suicide_prob <- all_cause_prob * suicide_percentage
+  
+  return(suicide_prob)
+}
 
 get_background_mortality <- function(age) {
-  all_cause_mortality <- get_age_mortality(age)  # Your existing function
-  suicide_mortality <- get_suicide_mortality_rate(age)
+  all_cause_prob <- get_age_mortality(age)  # Your existing function
+  suicide_prob <- get_suicide_mortality_probability(age)
   
   # Subtract suicide deaths to get non-suicide background mortality
-  background_mortality <- all_cause_mortality - suicide_mortality
+  background_prob <- all_cause_prob - suicide_prob
   
   # Ensure non-negative
-  return(pmax(0, background_mortality))
+  return(pmax(0, background_prob))
 }
 get_background_mortality <- Vectorize(get_background_mortality)
 
