@@ -22,7 +22,7 @@ use_individual_patients <- TRUE
 
 if (use_individual_patients) {
   # Individual patient model (for age-dependent mortality/costs)
-  n_patients <- 25000  # Reasonable size for Phase 2
+  n_patients <- 100000  # Reasonable size for Phase 2
   cat("Using individual patient model with", n_patients, "patients\n")
 } else {
   # Cohort model (simpler, but less accurate for age effects)
@@ -142,7 +142,42 @@ if (use_individual_patients) {
   
 }
 
+suicide_mortality_data <- read_excel("External Data/age_specific_suicide.xlsx")
 
+# Create lookup table
+suicide_mortality_table <- data.table(
+  age = suicide_mortality_data$Age,
+  suicide_rate = suicide_mortality_data$`% of Total Deaths`  # Already numeric
+)
+
+get_suicide_mortality_rate <- function(age) {
+  age_int <- floor(age)
+  
+  # Handle edge cases
+  if (age_int < min(suicide_mortality_table$age)) {
+    return(suicide_mortality_table[1]$suicide_rate)
+  }
+  if (age_int > max(suicide_mortality_table$age)) {
+    return(suicide_mortality_table[nrow(suicide_mortality_table)]$suicide_rate)
+  }
+  
+  # Find closest age
+  closest_age <- suicide_mortality_table[age <= age_int][which.max(age)]
+  return(closest_age$suicide_rate)
+}
+get_suicide_mortality_rate <- Vectorize(get_suicide_mortality_rate)
+
+get_background_mortality <- function(age) {
+  all_cause_mortality <- get_age_mortality(age)  # Your existing function
+  suicide_mortality <- get_suicide_mortality_rate(age)
+  
+  # Subtract suicide deaths to get non-suicide background mortality
+  background_mortality <- all_cause_mortality - suicide_mortality
+  
+  # Ensure non-negative
+  return(pmax(0, background_mortality))
+}
+get_background_mortality <- Vectorize(get_background_mortality)
 
 # =============================================================================
 # 1. STRATEGIES (INTERVENTIONS)
@@ -167,7 +202,7 @@ if (use_individual_patients) {
   patients <- data.table(
     patient_id = 1:n_patients,
     # Age distribution from paper (mean 48.8, SD 17.2)
-    age = pmax(18, pmin(95, rnorm(n_patients, 48.8, 17.2))),
+    age = rnorm(n_patients, 48.8, 17.2),
     # Risk stratum (1-1000, uniform distribution)
     risk_stratum = sample(1:n_risk_strata, n_patients, replace = TRUE)
   )
