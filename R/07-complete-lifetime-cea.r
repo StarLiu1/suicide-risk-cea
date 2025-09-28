@@ -7,7 +7,7 @@ library(data.table)
 library(ggplot2)
 
 # Load the complete setup from risk prediction script
-load("data/hesim_costs_utilities_newest.RData")
+load("data/hesim_costs_utilities.RData")
 
 cat("=== COMPLETE LIFETIME CEA SIMULATION ===\n")
 cat("Ross et al. (2021) Suicide Risk Prediction Model\n\n")
@@ -270,7 +270,6 @@ calculate_lifetime_costs_qalys <- function(simulation_result) {
   
   strategy_name <- simulation_result$strategy_name
   stateprobs <- simulation_result$stateprobs
-  alive_status <- simulation_result$alive_status
   
   cat("Calculating costs and QALYs for", strategy_name, "...\n")
   
@@ -280,59 +279,59 @@ calculate_lifetime_costs_qalys <- function(simulation_result) {
   # Cost parameters by strategy
   intervention_cost <- intervention_params$annual_cost[[strategy_name]]
   
-  # Process each patient-cycle combination
-  for (cycle in 1:n_cycles_lifetime) {
+  # Process each patient-cycle combination using stateprobs data.table
+  for (cycle in 0:(n_cycles_lifetime-1)) {  # Note: cycles 0 to n_cycles-1
     
-    discount_factor <- 1 / (1 + discount_rate)^(cycle - 1)
+    discount_factor <- 1 / (1 + discount_rate)^cycle
     
-    for (patient in 1:n_patients) {
+    # Get all state probabilities for this cycle
+    cycle_probs <- stateprobs[t == cycle]
+    
+    if (nrow(cycle_probs) == 0) next  # Skip if no data for this cycle
+    
+    for (i in 1:nrow(cycle_probs)) {
       
-      # Skip if patient is dead
-      if (!alive_status[1, patient, cycle]) next 
+      prob_row <- cycle_probs[i]
+      patient_id <- prob_row$patient_id
+      state_id <- prob_row$state_id
+      prob_value <- prob_row$prob
+      
+      if (prob_value < 1e-6) next  # Skip negligible probabilities
       
       # Get patient age this cycle
-      patient_age <- patients$age[patient] + (cycle - 1)
+      patient_age <- patients[patient_id == prob_row$patient_id]$age + cycle
       
-      # Get state probabilities for this patient this cycle
-      state_probs <- stateprobs[1, patient, cycle, ]
-      
-      # Calculate costs for each state
-      for (state in 1:3) {
+      # Calculate costs and utilities for this state
+      if (state_id == 3) {
+        # Dead state - no costs or utilities
+        state_cost <- 0
+        state_utility <- 0
+      } else {
+        # Living states - background + intervention costs
+        bg_cost <- case_when(
+          patient_age < 45 ~ cost_params$cost_values$bg_medical_18_44,
+          patient_age < 65 ~ cost_params$cost_values$bg_medical_45_64,
+          TRUE ~ cost_params$cost_values$bg_medical_65plus
+        )
         
-        if (state_probs[state] < 1e-6) next  # Skip negligible probabilities
+        state_cost <- bg_cost + intervention_cost
         
-        if (state == 3) {
-          # Dead state - no costs
-          state_cost <- 0
-          state_utility <- 0
+        # State-specific utility
+        if (state_id == 1) {
+          state_utility <- clinical_params$base_utility  # No attempts
+        } else if (state_id == 2) {
+          state_utility <- clinical_params$base_utility * 0.95  # Prior attempt
         } else {
-          # Living states - background + intervention costs
-          bg_cost <- case_when(
-            patient_age < 45 ~ cost_params$cost_values$bg_medical_18_44,
-            patient_age < 65 ~ cost_params$cost_values$bg_medical_45_64,
-            TRUE ~ cost_params$cost_values$bg_medical_65plus
-          )
-          
-          state_cost <- bg_cost + intervention_cost
-          
-          # State-specific utility
-          if (state == 1) {
-            state_utility <- clinical_params$base_utility  # No attempts
-          } else {
-            state_utility <- clinical_params$base_utility * 0.95  # Prior attempt
-          }
+          state_utility <- 0  # Shouldn't happen for living states, but safe default
         }
-        
-        # Add event costs for transitions (simplified)
-        # In full model, would track specific transitions and add attempt/death costs
-        
-        # Apply discounting and probability weighting
-        discounted_cost <- state_cost * discount_factor * state_probs[state]
-        discounted_qaly <- state_utility * discount_factor * state_probs[state]
-        
-        total_costs <- total_costs + discounted_cost
-        total_qalys <- total_qalys + discounted_qaly
       }
+      
+      # Apply discounting and probability weighting
+      discounted_cost <- state_cost * discount_factor * prob_value
+      discounted_qaly <- state_utility * discount_factor * prob_value
+      
+      total_costs <- total_costs + discounted_cost
+      total_qalys <- total_qalys + discounted_qaly
     }
   }
   
@@ -351,7 +350,6 @@ calculate_lifetime_costs_qalys <- function(simulation_result) {
     qalys_per_patient = qalys_per_patient
   ))
 }
-
 # =============================================================================
 # 4. RUN COMPLETE LIFETIME SIMULATION FOR ALL STRATEGIES
 # =============================================================================

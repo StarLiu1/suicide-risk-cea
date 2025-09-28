@@ -36,7 +36,7 @@ if (use_individual_patients) {
 # =============================================================================
 
 # Model timing
-n_cycles <- 1
+n_cycles <- 50
 cycle_length <- 1  # years
 discount_rate <- 0.03
 
