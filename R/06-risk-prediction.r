@@ -54,7 +54,7 @@ run_transition_simulation <- function(strategy_name, patients_with_pred, verbose
         #   adjusted_rate <- baseline_rate * 1.0  # No intervention effect
         # }
         adjusted_rate <- baseline_rate * intervention_rr
-      } else {
+      } else { 
         # This patient gets no intervention  
         adjusted_rate <- baseline_rate * 1.0
       }
