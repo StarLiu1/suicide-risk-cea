@@ -5,7 +5,7 @@
 library(data.table)
 
 # Load previous simulation data
-# load("data/hesim_costs_utilities_100k_1cycle.RData")
+load("data/hesim_costs_utilities_newest.RData")
 # source("R/05-simulation.R")  # Get the run_transition_simulation function
 run_transition_simulation <- function(strategy_name, patients_with_pred, verbose = TRUE) {
   

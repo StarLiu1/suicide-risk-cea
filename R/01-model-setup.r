@@ -36,7 +36,7 @@ if (use_individual_patients) {
 # =============================================================================
 
 # Model timing
-n_cycles <- 80
+n_cycles <- 1
 cycle_length <- 1  # years
 discount_rate <- 0.03
 
@@ -213,7 +213,8 @@ if (use_individual_patients) {
   patients <- data.table(
     patient_id = 1:n_patients,
     # Age distribution from paper (mean 48.8, SD 17.2)
-    age = rnorm(n_patients, 48.8, 17.2),
+    # age = rnorm(n_patients, 48.8, 17.2),
+    age = pmax(0, pmin(100, rnorm(n_patients, 48.8, 17.2))),
     # Risk stratum (1-1000, uniform distribution)
     risk_stratum = sample(1:n_risk_strata, n_patients, replace = TRUE)
   )

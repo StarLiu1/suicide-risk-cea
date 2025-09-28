@@ -56,11 +56,14 @@ run_transition_simulation <- function(strategy_name, patients_with_pred, verbose
   total_deaths_suicide <- 0
   total_deaths_other <- 0
   
+  intervention_uptake <- intervention_params$uptake[[strategy_name]]
+  
   # Run simulation cycles
   for (cycle in 1:n_cycles) {
     
     cycle_attempts <- 0
     cycle_deaths <- 0
+    cycle_deaths_other <- 0
     
     # Process each patient
     for (patient in 1:n_patients) {
@@ -74,15 +77,21 @@ run_transition_simulation <- function(strategy_name, patients_with_pred, verbose
       
       # Apply intervention effect
       if (patients_with_pred$predicted_high_risk[patient]) {
-        # This patient gets intervention
-        adjusted_rate <- baseline_rate * intervention_rr  # 0.83 or 0.47
-      } else {
+        # if (runif(1) < intervention_uptake) {  # 99.4% for ACF, 89.9% for CBT
+        #   adjusted_rate <- baseline_rate * intervention_rr 
+        # } else {
+        #   adjusted_rate <- baseline_rate * 1.0  # No intervention effect
+        # }
+        adjusted_rate <- baseline_rate * intervention_rr
+      } else { 
         # This patient gets no intervention  
         adjusted_rate <- baseline_rate * 1.0
       }
       
+      
       # Get age-dependent mortality
-      age_mortality <- get_background_mortality(patient_age)
+      # age_mortality <- get_age_mortality(patient_age)
+      age_mortality <- get_background_mortality(patient_age) 
       
       # Current state probabilities for this patient
       current_probs <- stateprobs_array[1, patient, cycle, ]
@@ -124,6 +133,9 @@ run_transition_simulation <- function(strategy_name, patients_with_pred, verbose
           cycle_attempts <- cycle_attempts + current_probs[1] * suicide_death_prob
           cycle_deaths <- cycle_deaths + current_probs[1] * suicide_death_prob
         }
+        if (other_death_prob > 0) {
+          cycle_deaths_other <- cycle_deaths_other + current_probs[1] * other_death_prob  # OTHER deaths
+        }
       }
       
       # FROM STATE 2 (prior_attempt):
@@ -152,6 +164,9 @@ run_transition_simulation <- function(strategy_name, patients_with_pred, verbose
           cycle_attempts <- cycle_attempts + current_probs[2] * prior_attempt_prob
           cycle_deaths <- cycle_deaths + current_probs[2] * prior_death_prob
         }
+        if (age_mortality_adj > 0) {
+          cycle_deaths_other <- cycle_deaths_other + current_probs[2] * age_mortality_adj  # OTHER deaths
+        }
       }
       
       # FROM STATE 3 (dead):
@@ -164,11 +179,12 @@ run_transition_simulation <- function(strategy_name, patients_with_pred, verbose
     # Accumulate outcomes
     total_attempts <- total_attempts + cycle_attempts
     total_deaths_suicide <- total_deaths_suicide + cycle_deaths
+    total_deaths_other <- total_deaths_other + cycle_deaths_other
     
     # Progress reporting
     if (verbose && (cycle <= 5 || cycle %% 20 == 0)) {
-      cat(sprintf("  Cycle %2d: Deaths=%.2f, Attempts=%.2f\n", 
-                  cycle, cycle_deaths, cycle_attempts))
+      cat(sprintf("  Cycle %2d: Suicide Deaths=%.2f, Other Deaths=%.2f, Attempts=%.2f\n", 
+                  cycle, cycle_deaths, cycle_deaths_other, cycle_attempts))
     }
     
     # Calculate population counts at end of cycle
@@ -238,7 +254,14 @@ run_transition_simulation <- function(strategy_name, patients_with_pred, verbose
       total_attempts = total_attempts,
       total_deaths = total_deaths_suicide,
       attempt_rate_per_100k = attempt_rate,
-      death_rate_per_100k = death_rate
+      death_rate_per_100k = death_rate,
+      total_deaths_other = total_deaths_other,
+      total_deaths_suicide = total_deaths_suicide,
+      total_deaths_all = total_deaths_suicide + total_deaths_other,
+      # attempt_rate_per_100k = (total_attempts / person_years) * 100000,
+      suicide_death_rate_per_100k = (total_deaths_suicide / person_years) * 100000,
+      other_death_rate_per_100k = (total_deaths_other / person_years) * 100000,
+      total_death_rate_per_100k = ((total_deaths_suicide + total_deaths_other) / person_years) * 100000
     )
   ))
 }
