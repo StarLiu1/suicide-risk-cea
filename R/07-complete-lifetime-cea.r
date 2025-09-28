@@ -288,7 +288,7 @@ calculate_lifetime_costs_qalys <- function(simulation_result) {
     for (patient in 1:n_patients) {
       
       # Skip if patient is dead
-      if (!alive_status[1, patient, cycle]) next
+      if (!alive_status[1, patient, cycle]) next 
       
       # Get patient age this cycle
       patient_age <- patients$age[patient] + (cycle - 1)
