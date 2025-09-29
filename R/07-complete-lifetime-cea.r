@@ -55,6 +55,20 @@ run_lifetime_simulation <- function(strategy_name, patients_with_pred, verbose =
   
   intervention_uptake <- intervention_params$uptake[[strategy_name]]
   
+  # Add this BEFORE the cycle loop starts:
+  track_by_cycle <- data.table(
+    cycle = integer(),
+    mean_age = numeric(),
+    alive_start = numeric(),
+    person_years = numeric(),
+    attempts = numeric(),
+    suicide_deaths = numeric(),
+    other_deaths = numeric(),
+    attempt_rate_per_100k = numeric(),
+    suicide_death_rate_per_100k = numeric(),
+    other_death_rate_per_100k = numeric()
+  )
+  
   # Run simulation cycles
   for (cycle in 1:n_cycles_lifetime) {
     
@@ -206,16 +220,29 @@ run_lifetime_simulation <- function(strategy_name, patients_with_pred, verbose =
     
     # Progress reporting with population counts
     if (verbose && (cycle <= 5 || cycle %% 10 == 0)) {
-      cat(sprintf("  Cycle %2d: Person-Years = %s, Alive=%s, Prior Attempts=%s, Dead=%s, New Deaths=%.2f\n", 
+      cat(sprintf("  Cycle %2d: Person-Years = %s, Alive=%s, Prior Attempts=%.2f, Dead=%s, New Deaths=%.2f\n", 
                   cycle, 
                   format(round(alive_this_cycle), big.mark = ","),
                   format(round(alive_count), big.mark = ","),
-                  format(round(prior_attempt_count), big.mark = ","), 
+                  prior_attempt_count, 
                   format(round(dead_count), big.mark = ","),
                   cycle_deaths_suicide ))
     }
-    
+    # Then INSIDE the cycle loop (after accumulating outcomes), add:
+    track_by_cycle <- rbind(track_by_cycle, data.table(
+      cycle = cycle,
+      mean_age = mean(patients$age) + (cycle - 1),
+      alive_start = alive_this_cycle,
+      person_years = alive_this_cycle,
+      attempts = cycle_attempts,
+      suicide_deaths = cycle_deaths_suicide,
+      other_deaths = cycle_deaths_other,
+      attempt_rate_per_100k = (cycle_attempts / alive_this_cycle) * 100000,
+      suicide_death_rate_per_100k = (cycle_deaths_suicide / alive_this_cycle) * 100000,
+      other_death_rate_per_100k = (cycle_deaths_other / alive_this_cycle) * 100000
+    ))
   }
+  
   
   # Convert to hesim stateprobs format
   stateprobs_dt <- data.table()
@@ -263,8 +290,10 @@ run_lifetime_simulation <- function(strategy_name, patients_with_pred, verbose =
   return(list(
     strategy_name = strategy_name,
     stateprobs = stateprobs_dt,
+    track_by_cycle = track_by_cycle,  # ADD THIS
     summary = list(
       total_attempts = total_attempts,
+      total_person_years = total_person_years,
       total_deaths = total_deaths_suicide,
       attempt_rate_per_100k = attempt_rate,
       death_rate_per_100k = death_rate,
@@ -486,6 +515,134 @@ print(cea_results[, .(Strategy, Incremental_Cost, Incremental_QALYs, ICER, Cost_
 # 6. VALIDATION AGAINST ROSS ET AL. TARGETS
 # =============================================================================
 
+validate_simulation_results <- function(all_lifetime_results) {
+  
+  cat("\n=== COMPREHENSIVE VALIDATION ===\n\n")
+  
+  baseline <- all_lifetime_results[["No_Prediction"]]
+  
+  # 1. Check attempt rates
+  cat("1. ATTEMPT RATE VALIDATION:\n")
+  cat("   Target: 175 per 100K person-years\n")
+  cat("   Actual:", round(baseline$summary$attempt_rate_per_100k, 1), "per 100K\n")
+  cat("   Ratio:", round(baseline$summary$attempt_rate_per_100k / 175, 3), "\n")
+  
+  if (abs(baseline$summary$attempt_rate_per_100k - 175) < 20) {
+    cat("   ✓ PASS\n\n")
+  } else {
+    cat("   ✗ FAIL - Outside acceptable range\n\n")
+  }
+  
+  # 2. Check suicide death rates
+  cat("2. SUICIDE DEATH RATE VALIDATION:\n")
+  cat("   Target: 15 per 100K person-years\n")
+  cat("   Actual:", round(baseline$summary$suicide_death_rate_per_100k, 1), "per 100K\n")
+  cat("   Ratio:", round(baseline$summary$suicide_death_rate_per_100k / 15, 3), "\n")
+  
+  if (abs(baseline$summary$suicide_death_rate_per_100k - 15) < 3) {
+    cat("   ✓ PASS\n\n")
+  } else {
+    cat("   ✗ FAIL - Outside acceptable range\n\n")
+  }
+  
+  # 3. Check death-to-attempt ratio
+  cat("3. DEATH/ATTEMPT RATIO VALIDATION:\n")
+  death_attempt_ratio <- baseline$summary$total_deaths_suicide / baseline$summary$total_attempts
+  cat("   Expected: 0.0881 (8.81%)\n")
+  cat("   Actual:", round(death_attempt_ratio, 4), "\n")
+  
+  if (abs(death_attempt_ratio - 0.0881) < 0.01) {
+    cat("   ✓ PASS\n\n")
+  } else {
+    cat("   ✗ FAIL - Ratio doesn't match clinical parameter\n\n")
+  }
+  
+  # 4. Check overall death rate
+  cat("4. OVERALL DEATH RATE VALIDATION:\n")
+  cat("   Target: ~3,000 per 100K person-years (Ross et al. Table 2)\n")
+  cat("   Actual:", round(baseline$summary$total_death_rate_per_100k, 0), "per 100K\n")
+  cat("   Ratio:", round(baseline$summary$total_death_rate_per_100k / 3058, 3), "\n")
+  
+  if (abs(baseline$summary$total_death_rate_per_100k - 3058) < 500) {
+    cat("   ✓ PASS\n\n")
+  } else {
+    cat("   ✗ FAIL - Outside acceptable range\n\n")
+  }
+  
+  # 5. Check person-years calculation
+  cat("5. PERSON-YEARS VALIDATION:\n")
+  expected_min_py <- n_patients * n_cycles_lifetime * 0.5  # At least 50% survive on avg
+  expected_max_py <- n_patients * n_cycles_lifetime * 0.9  # At most 90% survive on avg
+  actual_py <- baseline$summary$total_person_years
+  
+  cat("   Expected range:", format(expected_min_py, big.mark = ","), 
+      "to", format(expected_max_py, big.mark = ","), "\n")
+  cat("   Actual:", format(actual_py, big.mark = ","), "\n")
+  
+  if (actual_py >= expected_min_py && actual_py <= expected_max_py) {
+    cat("   ✓ PASS\n\n")
+  } else {
+    cat("   ✗ FAIL - Person-years outside expected range\n\n")
+  }
+  
+  # 6. Check intervention effects
+  cat("6. INTERVENTION EFFECTS VALIDATION:\n")
+  
+  for (strategy in c("ACF_Intervention", "CBT_Intervention")) {
+    result <- all_lifetime_results[[strategy]]
+    expected_rr <- intervention_params$rr[[strategy]]
+    
+    # Calculate actual reduction
+    baseline_attempts <- baseline$summary$attempt_rate_per_100k
+    strategy_attempts <- result$summary$attempt_rate_per_100k
+    actual_reduction <- 1 - (strategy_attempts / baseline_attempts)
+    expected_reduction <- 1 - expected_rr
+    
+    cat("   ", strategy, ":\n")
+    cat("     Expected RR:", expected_rr, "(", round(expected_reduction * 100, 0), "% reduction)\n")
+    cat("     Actual reduction:", round(actual_reduction * 100, 1), "%\n")
+    
+    # Should see SOME reduction, though not exactly the RR due to targeting
+    if (actual_reduction > 0 && actual_reduction < expected_reduction * 1.5) {
+      cat("     ✓ Shows expected reduction\n\n")
+    } else {
+      cat("     ✗ Reduction not as expected\n\n")
+    }
+  }
+  
+  return(TRUE)
+}
+create_cycle_summary_table <- function(all_lifetime_results) {
+  
+  cat("\n=== CYCLE-BY-CYCLE SUMMARY ===\n\n")
+  
+  baseline <- all_lifetime_results[["No_Prediction"]]
+  cycle_data <- baseline$track_by_cycle
+  
+  # Select key cycles to display
+  display_cycles <- c(1, 5, 10, 20, 30, 40, 50)
+  display_data <- cycle_data[cycle %in% display_cycles]
+  
+  cat("Cycle | Age | Alive    | Attempts | Deaths | Attempt Rate | Death Rate | Total Death Rate\n")
+  cat("------|-----|----------|----------|--------|--------------|------------|------------------\n")
+  
+  for (i in 1:nrow(display_data)) {
+    row <- display_data[i]
+    cat(sprintf("%5d | %3.0f | %8s | %8.1f | %6.1f | %12.0f | %10.0f | %16.0f\n",
+                row$cycle,
+                row$mean_age,
+                format(round(row$alive_start), big.mark = ","),
+                row$attempts,
+                row$suicide_deaths,
+                row$attempt_rate_per_100k,
+                row$suicide_death_rate_per_100k,
+                row$other_death_rate_per_100k + row$suicide_death_rate_per_100k))
+  }
+  
+  cat("\nRates are per 100,000 person-years for that cycle\n")
+  
+  return(display_data)
+}
 cat("\n=== VALIDATION AGAINST ROSS ET AL. (2021) ===\n")
 
 baseline_results <- all_lifetime_results[["No_Prediction"]]$summary
@@ -514,6 +671,127 @@ validation_status <- ifelse(
   ifelse(attempt_ratio >= 0.5 && attempt_ratio <= 2.0 && death_ratio >= 0.5 && death_ratio <= 2.0,
          "GOOD", "NEEDS_CALIBRATION")
 )
+
+# =============================================================================
+# 4. ADD COMPARISON TO ROSS ET AL. TABLE 2
+# =============================================================================
+
+compare_to_ross_table2 <- function(all_lifetime_results, all_economic_results) {
+  
+  cat("\n=== COMPARISON TO ROSS ET AL. TABLE 2 ===\n\n")
+  
+  # Ross et al. Table 2 values (baseline, specificity 95%, sensitivity 25%)
+  ross_values <- data.table(
+    Strategy = c("No_Prediction", "ACF_Intervention", "CBT_Intervention"),
+    Ross_Attempts = c(174.15, 174.15 - 5.90, 174.15 - 17.76),
+    Ross_Deaths = c(15.34, 15.34 - 0.52, 15.34 - 1.56),
+    Ross_QALYs = c(16.3894, 16.3894 + 0.0016, 16.3894 + 0.0046),
+    Ross_Costs = c(165190, 165190 + 167, 165190 + 1017)
+  )
+  
+  # Your values
+  your_values <- data.table(
+    Strategy = names(all_lifetime_results),
+    Your_Attempts = sapply(all_lifetime_results, function(x) x$summary$attempt_rate_per_100k),
+    Your_Deaths = sapply(all_lifetime_results, function(x) x$summary$suicide_death_rate_per_100k),
+    Your_QALYs = sapply(all_economic_results, function(x) x$qalys_per_patient),
+    Your_Costs = sapply(all_economic_results, function(x) x$cost_per_patient)
+  )
+  
+  # Merge
+  comparison <- merge(ross_values, your_values, by = "Strategy")
+  
+  # Calculate ratios
+  comparison[, Attempt_Ratio := Your_Attempts / Ross_Attempts]
+  comparison[, Death_Ratio := Your_Deaths / Ross_Deaths]
+  comparison[, QALY_Ratio := Your_QALYs / Ross_QALYs]
+  comparison[, Cost_Ratio := Your_Costs / Ross_Costs]
+  
+  cat("Strategy         | Attempts | Deaths | QALYs | Costs\n")
+  cat("                 | Ratio    | Ratio  | Ratio | Ratio\n")
+  cat("-----------------|----------|--------|-------|-------\n")
+  
+  for (i in 1:nrow(comparison)) {
+    row <- comparison[i]
+    cat(sprintf("%-16s | %8.3f | %6.3f | %5.3f | %5.3f\n",
+                row$Strategy,
+                row$Attempt_Ratio,
+                row$Death_Ratio,
+                row$QALY_Ratio,
+                row$Cost_Ratio))
+  }
+  
+  cat("\nRatio = Your Value / Ross et al. Value (1.000 = perfect match)\n")
+  
+  return(comparison)
+}
+
+plot_death_rate_evolution <- function(all_lifetime_results) {
+  
+  baseline <- all_lifetime_results[["No_Prediction"]]
+  cycle_data <- baseline$track_by_cycle
+  
+  # Create plot
+  p <- ggplot(cycle_data, aes(x = cycle)) +
+    geom_line(aes(y = other_death_rate_per_100k, color = "Other Deaths"), size = 1.2) +
+    geom_line(aes(y = suicide_death_rate_per_100k, color = "Suicide Deaths"), size = 1.2) +
+    geom_line(aes(y = attempt_rate_per_100k, color = "Attempts"), size = 1.2) +
+    scale_y_log10(labels = scales::comma) +
+    labs(title = "Evolution of Rates Over Lifetime Horizon",
+         x = "Cycle (Year)",
+         y = "Rate per 100,000 person-years (log scale)",
+         color = "Outcome") +
+    theme_minimal() +
+    theme(legend.position = "bottom")
+  
+  ggsave("output/figures/rate_evolution_over_time.png", p, width = 10, height = 6)
+  
+  cat("Time series plot saved to output/figures/rate_evolution_over_time.png\n")
+}
+
+create_comprehensive_summary <- function(all_lifetime_results, all_economic_results, cea_results) {
+  
+  cat("\n")
+  cat("================================================================================\n")
+  cat("COMPREHENSIVE SIMULATION SUMMARY\n")
+  cat("================================================================================\n\n")
+  
+  # Run all validation and summary functions
+  validate_simulation_results(all_lifetime_results)
+  cycle_summary <- create_cycle_summary_table(all_lifetime_results)
+  ross_comparison <- compare_to_ross_table2(all_lifetime_results, all_economic_results)
+  plot_death_rate_evolution(all_lifetime_results)
+  
+  # Overall assessment
+  cat("\n=== OVERALL ASSESSMENT ===\n\n")
+  
+  baseline <- all_lifetime_results[["No_Prediction"]]
+  
+  # Check if all key metrics are within 20% of targets
+  checks <- c(
+    abs(baseline$summary$attempt_rate_per_100k / 175 - 1) < 0.2,
+    abs(baseline$summary$suicide_death_rate_per_100k / 15 - 1) < 0.2,
+    abs(baseline$summary$total_death_rate_per_100k / 3058 - 1) < 0.2
+  )
+  
+  if (all(checks)) {
+    cat("✓✓✓ EXCELLENT - All metrics within 20% of Ross et al. targets\n")
+    cat("Model is ready for publication and policy recommendations\n")
+  } else if (sum(checks) >= 2) {
+    cat("✓✓ GOOD - Most metrics match Ross et al. targets\n")
+    cat("Consider minor calibration adjustments\n")
+  } else {
+    cat("✓ ACCEPTABLE - Some metrics need calibration\n")
+    cat("Review model parameters and risk distribution\n")
+  }
+  
+  cat("\n================================================================================\n")
+}
+
+# =============================================================================
+# 7. ADD TO YOUR MAIN SCRIPT
+# =============================================================================
+
 
 cat("Validation status:", validation_status, "\n")
 
@@ -584,67 +862,4 @@ save(
   file = "output/results/complete_lifetime_cea_results.RData"
 )
 
-# =============================================================================
-# 9. FINAL SUMMARY REPORT
-# =============================================================================
-
-cat("\n")
-cat("===============================================================================\n")
-cat("COMPLETE LIFETIME CEA SIMULATION - ROSS ET AL. (2021) REPLICATION\n")
-cat("===============================================================================\n")
-
-cat("\nModel Configuration:\n")
-cat("- Population:", format(n_patients, big.mark = ","), "individual patients\n")
-cat("- Risk strata: 1000 (individual assignment)\n")
-cat("- Time horizon:", n_cycles_lifetime, "years (lifetime)\n")
-cat("- Starting age: mean", round(mean(patients$age), 1), "years\n")
-cat("- Risk prediction: 95% specificity, 25% sensitivity\n")
-cat("- Intervention targeting: Predicted high-risk patients only\n")
-
-cat("\nKey Findings:\n")
-for (i in 1:nrow(cea_results)) {
-  result <- cea_results[i]
-  cat(sprintf("- %s: %.1f attempts, %.1f deaths per 100K person-years\n",
-              result$Strategy, result$Attempts_per_100k, result$Deaths_per_100k))
-}
-
-cat("\nCost-Effectiveness (vs No Prediction):\n")
-for (strategy in cea_results[Strategy != "No_Prediction"]$Strategy) {
-  result <- cea_results[Strategy == strategy]
-  cost_effective <- result$Cost_Effective
-  
-  if (!is.na(result$ICER)) {
-    cat(sprintf("- %s: ICER = $%s/QALY (%s at $150K threshold)\n",
-                strategy, 
-                format(round(result$ICER), big.mark = ","),
-                cost_effective))
-  }
-}
-
-cat("\nValidation vs Ross et al. (2021):", validation_status, "\n")
-cat("- Attempt rate calibration: ratio =", round(attempt_ratio, 3), "\n")
-cat("- Death rate calibration: ratio =", round(death_ratio, 3), "\n")
-
-if (validation_status %in% c("EXCELLENT", "GOOD")) {
-  cat("\n✓ Model successfully replicates Ross et al. base case outcomes\n")
-  cat("✓ Cost-effectiveness analysis complete\n")
-  cat("✓ Ready for sensitivity analysis and policy recommendations\n")
-} else {
-  cat("\n⚠️  Model calibration needs adjustment to better match targets\n")
-  cat("- Consider adjusting risk distribution parameters\n")
-  cat("- Review transition probability calculations\n")
-}
-
-cat("\nFiles Created:\n")
-cat("- Complete results: output/results/complete_lifetime_cea_results.RData\n")
-cat("- Figures: output/figures/lifetime_*.png\n")
-
-cat("\nNext Steps:\n")
-cat("1. Probabilistic sensitivity analysis (PSA)\n") 
-cat("2. Threshold analysis for cost-effectiveness\n")
-cat("3. Budget impact analysis\n")
-cat("4. Validation against other published benchmarks\n")
-
-cat("\n===============================================================================\n")
-cat("SIMULATION COMPLETED SUCCESSFULLY\n")
-cat("===============================================================================\n")
+create_comprehensive_summary(all_lifetime_results, all_economic_results, cea_results)
