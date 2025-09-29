@@ -17,7 +17,7 @@ cat("Ross et al. (2021) Suicide Risk Prediction Model\n\n")
 # =============================================================================
 
 # Full lifetime parameters
-n_cycles_lifetime <- 1  # ~50 years from mean age 48.8 to end of life
+n_cycles_lifetime <- 5  # ~50 years from mean age 48.8 to end of life
 n_samples_psa <- 1       # Deterministic for base case
 
 cat("Lifetime simulation configuration:\n")
@@ -51,6 +51,7 @@ run_lifetime_simulation <- function(strategy_name, patients_with_pred, verbose =
   total_attempts <- 0
   total_deaths_suicide <- 0
   total_deaths_other <- 0
+  total_person_years <- 0
   
   intervention_uptake <- intervention_params$uptake[[strategy_name]]
   
@@ -60,6 +61,8 @@ run_lifetime_simulation <- function(strategy_name, patients_with_pred, verbose =
     cycle_attempts <- 0
     cycle_deaths <- 0
     cycle_deaths_other <- 0
+    alive_this_cycle <- sum(stateprobs_array[1, , cycle, 1:2])  # States 1 & 2 only
+    total_person_years <- total_person_years + alive_this_cycle
     
     # Process each patient
     for (patient in 1:n_patients) {
@@ -178,7 +181,7 @@ run_lifetime_simulation <- function(strategy_name, patients_with_pred, verbose =
     total_deaths_other <- total_deaths_other + cycle_deaths_other
     
     # Progress reporting
-    if (verbose && (cycle <= 5 || cycle %% 20 == 0)) {
+    if (verbose && (cycle <= 5 || cycle %% 10 == 0)) {
       cat(sprintf("  Cycle %2d: Suicide Deaths=%.2f, Other Deaths=%.2f, Attempts=%.2f\n", 
                   cycle, cycle_deaths, cycle_deaths_other, cycle_attempts))
     }
@@ -189,7 +192,7 @@ run_lifetime_simulation <- function(strategy_name, patients_with_pred, verbose =
     prior_attempt_count <- sum(stateprobs_array[1, , cycle + 1, 2])  # State 2 (prior attempts)
     
     # Progress reporting with population counts
-    if (verbose && (cycle <= 5 || cycle %% 20 == 0)) {
+    if (verbose && (cycle <= 5 || cycle %% 10 == 0)) {
       cat(sprintf("  Cycle %2d: Alive=%s, Prior Attempts=%s, Dead=%s, New Deaths=%.2f\n", 
                   cycle, 
                   format(round(alive_count), big.mark = ","),
