@@ -28,8 +28,8 @@ source("R/04-costs-utilities.R")
 source("R/05-simulation.R")
 source("R/06-risk-prediction.R")
 source("R/07-complete-lifetime-cea.R") 
-
-calculate_lifetime_costs_qalys(sim_result)
+source("R/07-complete-lifetime-cea-vectorized.R") 
+all_lifetime_results$No_Prediction$track_by_cycle
 ```
 
 

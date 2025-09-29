@@ -13,3 +13,13 @@
 test.r
 .Rproj.user/AF723CEC/pcs/source-pane.pper
 .Rproj.user/AF723CEC/pcs/windowlayoutstate.pper
+output/results/optimized_lifetime_cea_results_100k.RData
+output/results/optimized_lifetime_cea_results.RData
+data/hesim_transitions.RData
+data/hesim_setup.RData
+data/hesim_parameters.RData
+.Rproj.user/shared/notebooks/paths
+.Rproj.user/AF723CEC/sources/prop/INDEX
+.Rproj.user/AF723CEC/pcs/windowlayoutstate.pper
+.Rproj.user/AF723CEC/pcs/source-pane.pper
+.Rproj.user/AF723CEC/pcs/files-pane.pper

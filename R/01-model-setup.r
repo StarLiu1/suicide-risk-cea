@@ -22,7 +22,7 @@ use_individual_patients <- TRUE
 
 if (use_individual_patients) {
   # Individual patient model (for age-dependent mortality/costs)
-  n_patients <- 25000  # Reasonable size for Phase 2
+  n_patients <- 100000  # Reasonable size for Phase 2
   cat("Using individual patient model with", n_patients, "patients\n")
 } else {
   # Cohort model (simpler, but less accurate for age effects)
@@ -36,7 +36,7 @@ if (use_individual_patients) {
 # =============================================================================
 
 # Model timing
-n_cycles <- 50
+n_cycles <- 60
 cycle_length <- 1  # years
 discount_rate <- 0.03
 
