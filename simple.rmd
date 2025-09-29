@@ -29,98 +29,330 @@ source("R/05-simulation.R")
 source("R/06-risk-prediction.R")
 source("R/07-complete-lifetime-cea.R") 
 source("R/07-complete-lifetime-cea-vectorized.R") 
-all_lifetime_results$No_Prediction$track_by_cycle
-```
-
-
-```{r #phase 1}
-# Run the main simulation
-cat("Starting Phase 1 simulation...\n")
-results <- run_all_strategies()
-
-# Save results
-cat("\nSaving results...\n")
-if (!dir.exists("output/results")) {
-  dir.create("output/results", recursive = TRUE)
-}
-
-saveRDS(results, "output/results/phase1_results.rds")
-
-# Create basic plots
-cat("Creating plots...\n")
-
-# Extract data for plotting
-plot_data <- data.frame(
-  Strategy = names(results),
-  Deaths = sapply(results, function(x) x$outcomes$suicide_death_rate),
-  Attempts = sapply(results, function(x) x$outcomes$suicide_attempt_rate),
-  Cost = sapply(results, function(x) x$outcomes$cost_per_patient),
-  QALYs = sapply(results, function(x) x$outcomes$qalys_per_patient)
-)
-
-# Death rates plot
-p1 <- ggplot(plot_data, aes(x = Strategy, y = Deaths, fill = Strategy)) +
-  geom_col() +
-  labs(title = "Suicide Death Rate by Strategy",
-       y = "Deaths per 100,000 person-years",
-       x = "Strategy") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-# Cost vs QALYs plot
-p2 <- ggplot(plot_data, aes(x = QALYs, y = Cost, color = Strategy)) +
-  geom_point(size = 4) +
-  geom_text(aes(label = Strategy), vjust = -0.5) +
-  labs(title = "Cost vs QALYs",
-       x = "QALYs per Patient",
-       y = "Cost per Patient ($)") +
-  theme_minimal()
-
-# Save plots
-if (!dir.exists("output/figures")) {
-  dir.create("output/figures", recursive = TRUE)
-}
-
-# ggsave("output/figures/death_rates_phase1.png", p1, width = 8, height = 6)
-ggsave("output/figures/cost_effectiveness_phase1.png", p2, width = 8, height = 6)
-
-cat("✓ Plots saved to output/figures/\n")
-
-# Print summary
-# cat("\n" + rep("=", 50) + "\n")
-cat("PHASE 1 SIMULATION COMPLETED SUCCESSFULLY\n")
-# cat(rep("=", 50) + "\n\n")
-
-cat("Key Results:\n")
-baseline_deaths <- results[["No_Prediction"]]$outcomes$suicide_death_rate
-acf_deaths <- results[["ACF_Intervention"]]$outcomes$suicide_death_rate
-cbt_deaths <- results[["CBT_Intervention"]]$outcomes$suicide_death_rate
-
-cat(sprintf("• Baseline suicide death rate: %.2f per 100,000\n", baseline_deaths))
-cat(sprintf("• ACF intervention reduces deaths by: %.2f per 100,000\n", baseline_deaths - acf_deaths))
-cat(sprintf("• CBT intervention reduces deaths by: %.2f per 100,000\n", baseline_deaths - cbt_deaths))
-
-cat(sprintf("\nFiles saved:\n"))
-cat("• Results: output/results/phase1_results.rds\n")
-cat("• Plots: output/figures/\n")
-cat("\nReady to proceed to Phase 2 (Full Model Implementation)!\n")
-
-
 ```
 
 ```{r}
-# Verify our risk distribution matches paper's target
-risk_strata <- create_risk_strata(100)
-expected_attempts_per_100k <- sum(risk_strata$baseline_attempt_rate * 
-                                 risk_strata$proportion_pop) * 100000
-print(paste("Expected attempts per 100k:", expected_attempts_per_100k))
+print(all_lifetime_results$No_Prediction$track_by_cycle)
+
+verification <- data.table(
+     Strategy = names(all_lifetime_results),
+     Total_Other_Deaths = sapply(all_lifetime_results, function(x) x$summary$total_deaths_other),
+     Total_Person_Years = sapply(all_lifetime_results, function(x) x$summary$total_person_years),
+     Manual_Calc_Rate = sapply(all_lifetime_results, function(x) 
+         (x$summary$total_deaths_other / x$summary$total_person_years) * 100000),
+     Summary_Rate = sapply(all_lifetime_results, function(x) x$summary$other_death_rate_per_100k)
+)
+
+print(verification)
+
+# Method 1: Using the summary (what's already calculated)
+all_lifetime_results[["No_Prediction"]]$summary$other_death_rate_per_100k
+
+# Method 2: Manual calculation from totals (to verify)
+baseline <- all_lifetime_results[["No_Prediction"]]
+manual_other_death_rate <- (baseline$summary$total_deaths_other / baseline$summary$total_person_years) * 100000
+
+# Compare them:
+cat("Summary method:", baseline$summary$other_death_rate_per_100k, "\n")
+cat("Manual method:", manual_other_death_rate, "\n")
+cat("Match?", abs(baseline$summary$other_death_rate_per_100k - manual_other_death_rate) < 0.01, "\n")
+
+# For all strategies:
+verification <- data.table(
+  Strategy = names(all_lifetime_results),
+  Total_Other_Deaths = sapply(all_lifetime_results, function(x) x$summary$total_deaths_other),
+  Total_Person_Years = sapply(all_lifetime_results, function(x) x$summary$total_person_years),
+  Manual_Calc_Rate = sapply(all_lifetime_results, function(x) 
+    (x$summary$total_deaths_other / x$summary$total_person_years) * 100000),
+  Summary_Rate = sapply(all_lifetime_results, function(x) x$summary$other_death_rate_per_100k)
+)
+
+print(verification)
+```
 
 
-# Test transition matrix for highest risk stratum
-high_risk <- risk_strata[stratum_id == 100]  # Highest risk
-test_matrix <- create_transition_matrix(high_risk)
-print("High risk transition matrix:")
-print(test_matrix)
-print(paste("Attempt probability:", test_matrix[1,2]))
+
+```{r #more checks}
+# =============================================================================
+# CHECK: 54% OF SUICIDE DEATHS PRECEDED BY PRIOR ATTEMPT (FIXED)
+# =============================================================================
+
+check_54_percent_target <- function(simulation_result, patients_data = NULL) {
+  
+  cat("\n=== CHECKING 54% PRIOR ATTEMPT TARGET ===\n")
+  cat("Target: 54% of suicide deaths should be from people with prior attempts\n\n")
+  
+  strategy_name <- simulation_result$strategy_name
+  state_probs_array <- simulation_result$state_probs_array
+  
+  cat(sprintf("Strategy: %s\n", strategy_name))
+  
+  # Use provided patients_data or fall back to global patients
+  if (is.null(patients_data)) {
+    if (exists("patients_with_pred")) {
+      patients_data <- patients_with_pred
+    } else {
+      patients_data <- patients
+    }
+  }
+  
+  # Diagnostic: Check array dimensions
+  cat("\nDiagnostic - Array dimensions:", paste(dim(state_probs_array), collapse=" × "), "\n")
+  
+  # Track deaths from each state across all cycles
+  total_deaths_from_no_attempts <- 0
+  total_deaths_from_prior_attempt <- 0
+  
+  # Get patient-specific baseline rates
+  # First, ensure patients have baseline rates
+  if (!"baseline_attempt_rate" %in% names(patients_data)) {
+    # Merge with risk_strata
+    patients_data <- merge(patients_data, 
+                          risk_strata[, .(risk_stratum, baseline_attempt_rate)],
+                          by = "risk_stratum")
+  }
+  
+  patient_rates <- patients_data$baseline_attempt_rate
+  
+  # Apply intervention effect if applicable
+  intervention_rr <- 1.0  # Default: no intervention
+  
+  if (strategy_name == "ACF_Intervention") {
+    intervention_rr <- intervention_params$rr[["ACF_Intervention"]]
+  } else if (strategy_name == "CBT_Intervention") {
+    intervention_rr <- intervention_params$rr[["CBT_Intervention"]]
+  }
+  
+  # Apply intervention effect to predicted high-risk patients only
+  if ("predicted_high_risk" %in% names(patients_data)) {
+    patient_rates <- ifelse(patients_data$predicted_high_risk,
+                           patient_rates * intervention_rr,
+                           patient_rates)
+  } else {
+    # If no prediction info, assume all get intervention (conservative)
+    patient_rates <- patient_rates * intervention_rr
+  }
+  
+  cat("Diagnostic - Patient rates: min =", round(min(patient_rates)*100000, 2), 
+      "max =", round(max(patient_rates)*100000, 2), "per 100k\n")
+  cat("Diagnostic - Intervention RR:", intervention_rr, "\n")
+  cat("Diagnostic - Prior attempt multiplier:", clinical_params$prior_attempt_multiplier, "\n")
+  cat("Diagnostic - Death per attempt:", clinical_params$death_per_attempt, "\n")
+  
+  # Loop through all cycles
+  for (cycle in 1:n_cycles_lifetime) {
+    
+    # Get state probabilities at start of this cycle
+    prob_no_attempts <- state_probs_array[, cycle, 1]
+    prob_prior_attempt <- state_probs_array[, cycle, 2]
+    
+    # Diagnostic for first cycle
+    if (cycle == 1) {
+      cat("\nDiagnostic - Cycle 1 state probabilities:\n")
+      cat("  Sum of prob_no_attempts:", round(sum(prob_no_attempts), 2), "\n")
+      cat("  Sum of prob_prior_attempt:", round(sum(prob_prior_attempt), 2), "\n")
+      cat("  Number of patients:", length(prob_no_attempts), "\n")
+      cat("  Number of patient rates:", length(patient_rates), "\n")
+    }
+    
+    # Check dimensions match
+    if (length(prob_no_attempts) != length(patient_rates)) {
+      cat("\n⚠️  ERROR: Dimension mismatch!\n")
+      cat("  State probabilities length:", length(prob_no_attempts), "\n")
+      cat("  Patient rates length:", length(patient_rates), "\n")
+      return(list(strategy = strategy_name, status = "ERROR", fraction_from_prior = NA))
+    }
+    
+    # Calculate suicide deaths from each state
+    # Deaths from state 1 (no_attempts)
+    deaths_from_no <- sum(prob_no_attempts * patient_rates * clinical_params$death_per_attempt)
+    
+    # Deaths from state 2 (prior_attempt)
+    deaths_from_prior <- sum(prob_prior_attempt * patient_rates * 
+                             clinical_params$prior_attempt_multiplier * 
+                             clinical_params$death_per_attempt)
+    
+    # Diagnostic for first cycle
+    if (cycle == 1) {
+      cat("Diagnostic - Cycle 1 deaths:\n")
+      cat("  Deaths from no_attempts:", round(deaths_from_no, 2), "\n")
+      cat("  Deaths from prior_attempt:", round(deaths_from_prior, 2), "\n")
+    }
+    
+    # Accumulate
+    total_deaths_from_no_attempts <- total_deaths_from_no_attempts + deaths_from_no
+    total_deaths_from_prior_attempt <- total_deaths_from_prior_attempt + deaths_from_prior
+  }
+  
+  # Calculate total and fraction
+  total_suicide_deaths <- total_deaths_from_no_attempts + total_deaths_from_prior_attempt
+  
+  cat("\n--- CUMULATIVE RESULTS ---\n")
+  cat(sprintf("Total deaths from no_attempts: %.2f\n", total_deaths_from_no_attempts))
+  cat(sprintf("Total deaths from prior_attempt: %.2f\n", total_deaths_from_prior_attempt))
+  cat(sprintf("Total suicide deaths: %.2f\n", total_suicide_deaths))
+  
+  # Check for division by zero
+  if (total_suicide_deaths < 0.001) {
+    cat("\n⚠️  ERROR: Total suicide deaths is ~0, cannot calculate fraction\n")
+    fraction_from_prior <- NA
+    status <- "ERROR"
+  } else {
+    fraction_from_prior <- total_deaths_from_prior_attempt / total_suicide_deaths
+    
+    # Display results
+    cat("\n--- RESULTS ---\n")
+    cat(sprintf("  Deaths from no_attempts state: %.1f (%.1f%%)\n", 
+                total_deaths_from_no_attempts, 
+                (total_deaths_from_no_attempts/total_suicide_deaths)*100))
+    cat(sprintf("  Deaths from prior_attempt state: %.1f (%.1f%%)\n", 
+                total_deaths_from_prior_attempt,
+                (total_deaths_from_prior_attempt/total_suicide_deaths)*100))
+    
+    cat(sprintf("\nFraction of deaths from prior attempters: %.1f%%\n", 
+                fraction_from_prior * 100))
+    cat(sprintf("Target: 54.0%%\n"))
+    
+    # Validation
+    diff_from_target <- abs(fraction_from_prior * 100 - 54.0)
+    
+    if (diff_from_target <= 5) {
+      cat(sprintf("✓ Within ±5%% of target (diff = %.1f%%)\n", diff_from_target))
+      status <- "PASS"
+    } else if (diff_from_target <= 10) {
+      cat(sprintf("⚠️  Within ±10%% of target (diff = %.1f%%)\n", diff_from_target))
+      status <- "ACCEPTABLE"
+    } else {
+      cat(sprintf("✗ Outside acceptable range (diff = %.1f%%)\n", diff_from_target))
+      status <- "FAIL"
+    }
+  }
+  
+  # Cross-check with reported deaths
+  reported_deaths <- simulation_result$summary$total_deaths_suicide
+  cat(sprintf("\nCross-check: Calculated deaths = %.1f, Reported deaths = %.1f\n",
+              total_suicide_deaths, reported_deaths))
+  
+  if (!is.na(total_suicide_deaths) && abs(total_suicide_deaths - reported_deaths) / max(reported_deaths, 0.001) > 0.01) {
+    cat("⚠️  Discrepancy > 1%% - check calculation logic\n")
+  } else {
+    cat("✓ Deaths calculation consistent\n")
+  }
+  
+  return(list(
+    strategy = strategy_name,
+    total_deaths = total_suicide_deaths,
+    deaths_from_no = total_deaths_from_no_attempts,
+    deaths_from_prior = total_deaths_from_prior_attempt,
+    fraction_from_prior = fraction_from_prior,
+    target = 0.54,
+    status = status
+  ))
+}
+
+# =============================================================================
+# RUN CHECK FOR ALL STRATEGIES
+# =============================================================================
+
+cat("\n", rep("=", 70), "\n", sep="")
+cat("VALIDATION: 54% OF DEATHS FROM PRIOR ATTEMPTERS\n")
+cat(rep("=", 70), "\n", sep="")
+
+prior_death_checks <- list()
+
+# Check if patients_with_pred exists, otherwise use patients
+patients_to_use <- if(exists("patients_with_pred")) patients_with_pred else patients
+
+for (strategy in names(all_lifetime_results)) {
+  check_result <- check_54_percent_target(all_lifetime_results[[strategy]], 
+                                          patients_data = patients_to_use)
+  prior_death_checks[[strategy]] <- check_result
+}
+
+# =============================================================================
+# CREATE SUMMARY TABLE
+# =============================================================================
+
+cat("\n", rep("=", 70), "\n", sep="")
+cat("SUMMARY: PRIOR ATTEMPT FRACTION\n")
+cat(rep("=", 70), "\n\n", sep="")
+
+summary_54 <- data.table(
+  Strategy = names(prior_death_checks),
+  Fraction_From_Prior = sapply(prior_death_checks, function(x) {
+    if(is.na(x$fraction_from_prior)) return(NA)
+    round(x$fraction_from_prior * 100, 1)
+  }),
+  Target = 54.0,
+  Difference = sapply(prior_death_checks, function(x) {
+    if(is.na(x$fraction_from_prior)) return(NA)
+    round((x$fraction_from_prior * 100) - 54.0, 1)
+  }),
+  Status = sapply(prior_death_checks, function(x) x$status)
+)
+
+print(summary_54)
+
+cat("\nInterpretation:\n")
+cat("- Ross et al. calibrated their model so 54% of suicide deaths\n")
+cat("  come from people who previously attempted suicide\n")
+cat("- With multiplier = 1.0, you'll likely see ~0% from prior attempters\n")
+cat("  because very few people transition to prior_attempt state in cycle 1\n")
+cat("- You may need multiplier = 8-10× to achieve 54%\n")
+
+# =============================================================================
+# ALTERNATIVE CHECK: FRACTION BY CYCLE
+# =============================================================================
+
+check_54_by_cycle <- function(simulation_result, cycles_to_check = c(1, 10, 30, 60)) {
+  
+  cat(sprintf("\n=== FRACTION FROM PRIOR ATTEMPTS BY CYCLE: %s ===\n", 
+              simulation_result$strategy_name))
+  
+  state_probs_array <- simulation_result$state_probs_array
+  strategy_name <- simulation_result$strategy_name
+  
+  # Get patient rates
+  patient_rates <- patients_with_pred$baseline_attempt_rate
+  if (strategy_name == "ACF_Intervention") {
+    patient_rates <- ifelse(patients_with_pred$predicted_high_risk,
+                           patient_rates * intervention_params$rr[["ACF_Intervention"]],
+                           patient_rates)
+  } else if (strategy_name == "CBT_Intervention") {
+    patient_rates <- ifelse(patients_with_pred$predicted_high_risk,
+                           patient_rates * intervention_params$rr[["CBT_Intervention"]],
+                           patient_rates)
+  }
+  
+  cat("\nCycle | Deaths from No | Deaths from Prior | Fraction from Prior\n")
+  cat("------|----------------|-------------------|--------------------\n")
+  
+  for (cycle in cycles_to_check) {
+    if (cycle <= n_cycles_lifetime && cycle >= 1) {
+      
+      prob_no <- state_probs_array[, cycle, 1]
+      prob_prior <- state_probs_array[, cycle, 2]
+      
+      deaths_no <- sum(prob_no * patient_rates * clinical_params$death_per_attempt)
+      deaths_prior <- sum(prob_prior * patient_rates * 
+                         clinical_params$prior_attempt_multiplier * 
+                         clinical_params$death_per_attempt)
+      
+      total_deaths <- deaths_no + deaths_prior
+      fraction <- if(total_deaths > 0) deaths_prior / total_deaths else 0
+      
+      cat(sprintf("%5d | %14.2f | %17.2f | %18.1f%%\n",
+                  cycle, deaths_no, deaths_prior, fraction * 100))
+    }
+  }
+}
+
+# Check how fraction evolves over time
+cat("\n", rep("=", 70), "\n", sep="")
+cat("FRACTION FROM PRIOR ATTEMPTS OVER TIME\n")
+cat(rep("=", 70), "\n", sep="")
+
+check_54_by_cycle(all_lifetime_results[["No_Prediction"]], 
+                 cycles_to_check = c(1, 5, 10, 20, 30, 40, 50, 60))
 ```
 

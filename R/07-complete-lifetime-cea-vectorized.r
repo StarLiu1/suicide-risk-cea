@@ -6,6 +6,8 @@ library(hesim)
 library(data.table)
 library(ggplot2)
 
+load("data/mat_cal/hesim_costs_utilities.RData")
+
 cat("=== OPTIMIZED VECTORIZED LIFETIME CEA SIMULATION ===\n")
 cat("Ross et al. (2021) Suicide Risk Prediction Model\n\n")
 
@@ -106,13 +108,15 @@ run_lifetime_simulation_optimized <- function(strategy_name, patients_with_pred,
   )
   
   # Calculate for all patients and cycles at once
-  for (cycle in 1:n_cycles_lifetime) {
+  for (cycle in 0:n_cycles_lifetime-1) {
     
     # Current age for each patient
     current_ages <- patient_data$age + (cycle - 1)
     
     # Get age-dependent mortality (vectorized lookup)
     age_mortality <- age_lookup$age_mortality[match(floor(current_ages), age_lookup$age)]
+    # age_mortality <- get_background_mortality(current_ages)  # Just all-cause minus nothing
+    
     
     # FROM STATE 1 (no_attempts)
     suicide_attempt_prob <- patient_data$adjusted_rate
@@ -298,6 +302,7 @@ run_lifetime_simulation_optimized <- function(strategy_name, patients_with_pred,
   ))
 }
 
+
 # =============================================================================
 # 3. OPTIMIZED COST AND QALY CALCULATION
 # =============================================================================
@@ -398,7 +403,7 @@ risk_prediction_params <- list(
 apply_risk_prediction <- function(patients_dt, sensitivity, specificity) {
   patients_pred <- copy(patients_dt)
   patients_pred <- patients_pred[order(risk_stratum)]
-  true_high_risk_threshold <- 990
+  true_high_risk_threshold <- 950
   patients_pred[, true_high_risk := risk_stratum > true_high_risk_threshold]
   
   n_true_high <- sum(patients_pred$true_high_risk)
@@ -445,6 +450,48 @@ for (strategy in strategies$strategy_name) {
   all_economic_results[[strategy]] <- econ_result
 }
 
+quick_prior_check <- function(simulation_result) {
+  
+  state_probs_array <- simulation_result$state_probs_array
+  strategy_name <- simulation_result$strategy_name
+  
+  # Check dimensions
+  cat(sprintf("\n%s array dimensions: %s\n", strategy_name, 
+              paste(dim(state_probs_array), collapse=" × ")))
+  
+  # Average across all patients and cycles
+  # Exclude cycle 0 and final cycle for steady-state estimate
+  cycles_to_check <- 10:(n_cycles_lifetime-10)  # Middle cycles for steady state
+  
+  avg_in_no_attempts <- mean(state_probs_array[, cycles_to_check, 1])
+  avg_in_prior_attempt <- mean(state_probs_array[, cycles_to_check, 2])
+  avg_dead <- mean(state_probs_array[, cycles_to_check, 3])
+  
+  # Among living population
+  living <- avg_in_no_attempts + avg_in_prior_attempt
+  
+  if (living > 0) {
+    frac_prior <- avg_in_prior_attempt / living
+    frac_no <- avg_in_no_attempts / living
+    
+    cat(sprintf("  Average state distribution (cycles 10-50):\n"))
+    cat(sprintf("    No attempts: %.1f%% of living\n", frac_no * 100))
+    cat(sprintf("    Prior attempt: %.1f%% of living\n", frac_prior * 100))
+    cat(sprintf("    Dead: %.1f%% of total\n", avg_dead * 100))
+    
+    return(frac_prior)
+  } else {
+    cat("  ERROR: No living population found\n")
+    return(NA)
+  }
+}
+
+
+# Run this after simulations
+cat("\n=== QUICK STATE DISTRIBUTION CHECK ===\n")
+for (strategy in names(all_lifetime_results)) {
+  quick_prior_check(all_lifetime_results[[strategy]])
+}
 simulation_end_time <- Sys.time()
 total_time <- as.numeric(difftime(simulation_end_time, simulation_start_time, units = "mins"))
 
@@ -495,7 +542,7 @@ save(
   strategies, patients, states, risk_strata,
   clinical_params, intervention_params,
   n_cycles_lifetime, discount_rate,
-  file = "output/results/optimized_lifetime_cea_results_100k.RData"
+  file = "output/results/optimized_lifetime_cea_results_100k_top5.RData"
 )
 
 cat("\n✓ Optimized simulation complete!\n")
