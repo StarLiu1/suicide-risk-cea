@@ -7,7 +7,7 @@ library(data.table)
 library(ggplot2)
 
 # Load the complete setup from risk prediction script
-load("data/hesim_costs_utilities.RData")
+# load("data/hesim_costs_utilities.RData")
 
 cat("=== COMPLETE LIFETIME CEA SIMULATION ===\n")
 cat("Ross et al. (2021) Suicide Risk Prediction Model\n\n")
@@ -17,7 +17,7 @@ cat("Ross et al. (2021) Suicide Risk Prediction Model\n\n")
 # =============================================================================
 
 # Full lifetime parameters
-n_cycles_lifetime <- 5  # ~50 years from mean age 48.8 to end of life
+n_cycles_lifetime <- 50  # ~50 years from mean age 48.8 to end of life
 n_samples_psa <- 1       # Deterministic for base case
 
 cat("Lifetime simulation configuration:\n")
@@ -56,10 +56,10 @@ run_lifetime_simulation <- function(strategy_name, patients_with_pred, verbose =
   intervention_uptake <- intervention_params$uptake[[strategy_name]]
   
   # Run simulation cycles
-  for (cycle in 1:n_cycles) {
+  for (cycle in 1:n_cycles_lifetime) {
     
     cycle_attempts <- 0
-    cycle_deaths <- 0
+    cycle_deaths_suicide <- 0
     cycle_deaths_other <- 0
     alive_this_cycle <- sum(stateprobs_array[1, , cycle, 1:2])  # States 1 & 2 only
     total_person_years <- total_person_years + alive_this_cycle
@@ -125,16 +125,23 @@ run_lifetime_simulation <- function(strategy_name, patients_with_pred, verbose =
         new_probs[3] <- new_probs[3] + current_probs[1] * death_prob          # -> dead
         
         # Track outcomes
-        if (attempt_survive_prob > 0) {
-          cycle_attempts <- cycle_attempts + current_probs[1] * attempt_survive_prob
-        }
-        if (suicide_death_prob > 0) {
-          cycle_attempts <- cycle_attempts + current_probs[1] * suicide_death_prob
-          cycle_deaths <- cycle_deaths + current_probs[1] * suicide_death_prob
-        }
-        if (other_death_prob > 0) {
-          cycle_deaths_other <- cycle_deaths_other + current_probs[1] * other_death_prob  # OTHER deaths
-        }
+        # if (attempt_survive_prob > 0) {
+        #   cycle_attempts <- cycle_attempts + current_probs[1] * attempt_survive_prob
+        # }
+        # if (suicide_death_prob > 0) {
+        #   cycle_attempts <- cycle_attempts + current_probs[1] * suicide_death_prob
+        #   cycle_deaths_suicide <- cycle_deaths_suicide + current_probs[1] * suicide_death_prob
+        # }
+        # if (other_death_prob > 0) {
+        #   cycle_deaths_other <- cycle_deaths_other + current_probs[1] * other_death_prob  # OTHER deaths
+        # }
+        # 
+        # CORRECT - count total attempt probability once
+        cycle_attempts <- cycle_attempts + current_probs[1] * suicide_attempt_prob
+        
+        # Deaths are separate (subset of attempts)
+        cycle_deaths_suicide <- cycle_deaths_suicide + current_probs[1] * suicide_death_prob
+        cycle_deaths_other <- cycle_deaths_other + current_probs[1] * other_death_prob
       }
       
       # FROM STATE 2 (prior_attempt):
@@ -159,13 +166,19 @@ run_lifetime_simulation <- function(strategy_name, patients_with_pred, verbose =
         new_probs[3] <- new_probs[3] + current_probs[2] * death_prior_prob # -> dead
         
         # Track outcomes
-        if (prior_death_prob > 0) {
-          cycle_attempts <- cycle_attempts + current_probs[2] * prior_attempt_prob
-          cycle_deaths <- cycle_deaths + current_probs[2] * prior_death_prob
-        }
-        if (age_mortality_adj > 0) {
-          cycle_deaths_other <- cycle_deaths_other + current_probs[2] * age_mortality_adj  # OTHER deaths
-        }
+        # if (prior_death_prob > 0) {
+        #   cycle_attempts <- cycle_attempts + current_probs[2] * prior_attempt_prob
+        #   cycle_deaths_suicide <- cycle_deaths_suicide + current_probs[2] * prior_death_prob
+        # }
+        # if (age_mortality_adj > 0) {
+        #   cycle_deaths_other <- cycle_deaths_other + current_probs[2] * age_mortality_adj  # OTHER deaths
+        # }
+        
+        cycle_attempts <- cycle_attempts + current_probs[2] * prior_attempt_prob
+        
+        # Deaths are separate (subset of attempts)
+        cycle_deaths_suicide <- cycle_deaths_suicide + current_probs[2] * prior_death_prob
+        cycle_deaths_other <- cycle_deaths_other + current_probs[2] * age_mortality_adj  # OTHER deaths
       }
       
       # FROM STATE 3 (dead):
@@ -177,13 +190,13 @@ run_lifetime_simulation <- function(strategy_name, patients_with_pred, verbose =
     
     # Accumulate outcomes
     total_attempts <- total_attempts + cycle_attempts
-    total_deaths_suicide <- total_deaths_suicide + cycle_deaths
+    total_deaths_suicide <- total_deaths_suicide + cycle_deaths_suicide 
     total_deaths_other <- total_deaths_other + cycle_deaths_other
     
     # Progress reporting
     if (verbose && (cycle <= 5 || cycle %% 10 == 0)) {
       cat(sprintf("  Cycle %2d: Suicide Deaths=%.2f, Other Deaths=%.2f, Attempts=%.2f\n", 
-                  cycle, cycle_deaths, cycle_deaths_other, cycle_attempts))
+                  cycle, cycle_deaths_suicide , cycle_deaths_other, cycle_attempts))
     }
     
     # Calculate population counts at end of cycle
@@ -193,12 +206,13 @@ run_lifetime_simulation <- function(strategy_name, patients_with_pred, verbose =
     
     # Progress reporting with population counts
     if (verbose && (cycle <= 5 || cycle %% 10 == 0)) {
-      cat(sprintf("  Cycle %2d: Alive=%s, Prior Attempts=%s, Dead=%s, New Deaths=%.2f\n", 
+      cat(sprintf("  Cycle %2d: Person-Years = %s, Alive=%s, Prior Attempts=%s, Dead=%s, New Deaths=%.2f\n", 
                   cycle, 
+                  format(round(alive_this_cycle), big.mark = ","),
                   format(round(alive_count), big.mark = ","),
                   format(round(prior_attempt_count), big.mark = ","), 
                   format(round(dead_count), big.mark = ","),
-                  cycle_deaths))
+                  cycle_deaths_suicide ))
     }
     
   }
@@ -211,7 +225,7 @@ run_lifetime_simulation <- function(strategy_name, patients_with_pred, verbose =
       if (strategies$strategy_name[strategy_id] != strategy_name) next
       
       for (patient in 1:n_patients) {
-        for (cycle in 0:n_cycles) {
+        for (cycle in 0:n_cycles_lifetime) {
           for (state in 1:n_states) {
             
             prob_val <- stateprobs_array[sample, patient, cycle + 1, state]
@@ -237,9 +251,9 @@ run_lifetime_simulation <- function(strategy_name, patients_with_pred, verbose =
   setattr(stateprobs_dt, "class", c("stateprobs", "data.table", "data.frame"))
   
   # Calculate summary statistics
-  person_years <- n_patients * n_cycles
-  attempt_rate <- (total_attempts / person_years) * 100000
-  death_rate <- (total_deaths_suicide / person_years) * 100000
+  # person_years <- n_patients * n_cycles_lifetime
+  attempt_rate <- (total_attempts / total_person_years) * 100000
+  death_rate <- (total_deaths_suicide / total_person_years) * 100000
   
   if (verbose) {
     cat(sprintf("  Final results: %.1f attempts, %.1f deaths per 100K person-years\n",
@@ -257,10 +271,10 @@ run_lifetime_simulation <- function(strategy_name, patients_with_pred, verbose =
       total_deaths_other = total_deaths_other,
       total_deaths_suicide = total_deaths_suicide,
       total_deaths_all = total_deaths_suicide + total_deaths_other,
-      # attempt_rate_per_100k = (total_attempts / person_years) * 100000,
-      suicide_death_rate_per_100k = (total_deaths_suicide / person_years) * 100000,
-      other_death_rate_per_100k = (total_deaths_other / person_years) * 100000,
-      total_death_rate_per_100k = ((total_deaths_suicide + total_deaths_other) / person_years) * 100000
+      # attempt_rate_per_100k = (total_attempts / total_person_years) * 100000,
+      suicide_death_rate_per_100k = (total_deaths_suicide / total_person_years) * 100000,
+      other_death_rate_per_100k = (total_deaths_other / total_person_years) * 100000,
+      total_death_rate_per_100k = ((total_deaths_suicide + total_deaths_other) / total_person_years) * 100000
     )
   ))
 }
