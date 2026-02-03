@@ -6,7 +6,8 @@ library(hesim)
 library(data.table)
 library(ggplot2)
 
-load("data/mat_cal/hesim_costs_utilities.RData")
+load("data/hesim_costs_utilities.RData") #top 5%
+# load("data/mat_cal/hesim_costs_utilities.RData") # top 1%
 
 cat("=== OPTIMIZED VECTORIZED LIFETIME CEA SIMULATION ===\n")
 cat("Ross et al. (2021) Suicide Risk Prediction Model\n\n")

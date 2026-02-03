@@ -32,6 +32,9 @@ source("R/07-complete-lifetime-cea-vectorized.R")
 ```
 
 ```{r}
+
+load("output/results/optimized_lifetime_cea_results_100k_top5.RData") #top 5%
+
 print(all_lifetime_results$No_Prediction$track_by_cycle)
 
 verification <- data.table(
@@ -68,6 +71,14 @@ verification <- data.table(
 )
 
 print(verification)
+
+
+
+print((sum(all_lifetime_results$No_Prediction$track_by_cycle$attempts)) / sum(all_lifetime_results$No_Prediction$track_by_cycle$person_years)) * 100000
+
+print((sum(all_lifetime_results$No_Prediction$track_by_cycle$suicide_deaths)) / sum(all_lifetime_results$No_Prediction$track_by_cycle$person_years)) * 100000
+
+print((sum(all_lifetime_results$No_Prediction$track_by_cycle$suicide_deaths) + sum( all_lifetime_results$No_Prediction$track_by_cycle$other_deaths)) / sum(all_lifetime_results$No_Prediction$track_by_cycle$person_years)) * 100000
 ```
 
 
